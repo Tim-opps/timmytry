@@ -37,7 +37,6 @@ DB_CONFIG = {
 # 全局变量
 bm25 = None
 corpus = None
-db_records = None
 
 # 数据库连接池
 def get_database_connection():
@@ -76,30 +75,35 @@ def jieba_tokenizer(text):
     words = pseg.cut(text)
     return [word for word, flag in words if flag != 'x']  # 返回分词后的列表
 
-# 初始化 BM25 corpus 和数据库记录
-def initialize_bm25():
-    global bm25, corpus, db_records
+# 分批加载数据以降低内存使用
+def get_corpus_batches(batch_size=500, limit=5000):
     connection = get_database_connection()
-    if connection is None:
+    if not connection:
         raise RuntimeError("Failed to connect to the database.")
-
+    
     try:
-        start_time = time.time()
         cursor = connection.cursor(dictionary=True)
-        query = """
-        SELECT id, title, content, classification
-        FROM cleaned_file
-        """
-        cursor.execute(query)
-        db_records = cursor.fetchall()  # 保存所有记录到全局变量
-        corpus = [jieba_tokenizer(row["title"] + " " + row["content"]) for row in db_records]
-        bm25 = BM25Okapi(corpus)
-        logging.info(f"BM25 corpus initialized. Time taken: {time.time() - start_time:.4f} seconds")
+        cursor.execute(f"SELECT title, content FROM cleaned_file LIMIT {limit}")
+        while True:
+            rows = cursor.fetchmany(batch_size)
+            if not rows:
+                break
+            yield [jieba_tokenizer(row["title"] + " " + row["content"]) for row in rows]
     finally:
         cursor.close()
         connection.close()
 
-# 在服务启动时调用初始化函数
+# 延迟初始化 BM25
+def initialize_bm25():
+    global bm25
+    corpus_batches = get_corpus_batches(batch_size=500, limit=5000)
+    tokenized_corpus = []
+    for batch in corpus_batches:
+        tokenized_corpus.extend(batch)
+    bm25 = BM25Okapi(tokenized_corpus)
+    logging.info(f"BM25 initialized with {len(tokenized_corpus)} documents.")
+
+# 初始化时调用优化的 BM25 函数
 initialize_bm25()
 
 # 预处理函数
@@ -130,10 +134,8 @@ def get_best_match_bm25(input_title):
     best_index = np.argmax(scores)
     best_score = scores[best_index]
     if best_score >= SIMILARITY_THRESHOLD:
-        best_match = db_records[best_index]
-        best_match["bm25_score"] = best_score
-        return best_match
-    return None
+        return best_index, best_score
+    return None, None
 
 # 增加历史记录的 API
 @app.route('/history', methods=['GET'])
@@ -175,11 +177,16 @@ def predict():
             return jsonify({'error': 'Title is too short'}), 400
 
         # 获取最佳匹配项
-        best_match = get_best_match_bm25(input_title)
-        if not best_match:
+        best_index, best_score = get_best_match_bm25(input_title)
+        if best_index is None:
             return jsonify({'error': 'No sufficiently similar data found in the database'}), 404
 
         # 使用模型进行预测
+        connection = get_database_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(f"SELECT title FROM cleaned_file LIMIT 5000")
+        rows = cursor.fetchall()
+        best_match = rows[best_index]
         probabilities = predict_category(input_title, best_match["title"])
         category_index = np.argmax(probabilities)
         categories = ["無關", "同意", "不同意"]  # 中文分類
@@ -188,29 +195,25 @@ def predict():
         response = {
             'input_title': input_title,
             'matched_title': best_match["title"],
-            'bm25_score': best_match["bm25_score"],
+            'bm25_score': best_score,
             'category': category,
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
         }
 
-        # 将数据存入历史记录表
-        connection = get_database_connection()
-        if connection:
-            cursor = connection.cursor()
-            query = """
-                INSERT INTO history (query_text, result_category, result_fake_probability, result_real_probability)
-                VALUES (%s, %s, %s, %s)
-            """
-            cursor.execute(query, (
-                input_title,
-                category,
-                response['probabilities']["同意"],
-                response['probabilities']["無關"]
-            ))
-            connection.commit()
-            cursor.close()
-            connection.close()
-            logging.info("History data saved to database.")
+        # 保存历史记录
+        query = """
+            INSERT INTO history (query_text, result_category, result_fake_probability, result_real_probability)
+            VALUES (%s, %s, %s, %s)
+        """
+        cursor.execute(query, (
+            input_title,
+            category,
+            response['probabilities']["同意"],
+            response['probabilities']["無關"]
+        ))
+        connection.commit()
+        cursor.close()
+        connection.close()
 
         logging.info(f"Total API processing time: {time.time() - start_time:.4f} seconds")
         return jsonify(response)
@@ -222,23 +225,3 @@ def predict():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))  # 从环境变量中获取 Render 分配的端口
     app.run(host='0.0.0.0', port=port)        # 使用动态端口
-
-
-
-@app.route('/get-random-news', methods=['GET'])
-def get_random_news():
-    try:
-        connection = get_database_connection()
-        if connection:
-            cursor = connection.cursor(dictionary=True)
-            query = "SELECT title, content FROM cleaned_file ORDER BY RAND() LIMIT 4"
-            cursor.execute(query)
-            news_data = cursor.fetchall()
-            cursor.close()
-            connection.close()
-            return jsonify({'news': news_data})
-        else:
-            return jsonify({'error': 'Failed to connect to database'}), 500
-    except Exception as e:
-        logging.error(f"Error fetching random news: {e}")
-        return jsonify({'error': str(e)}), 500
