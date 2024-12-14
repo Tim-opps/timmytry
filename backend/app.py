@@ -34,10 +34,6 @@ DB_CONFIG = {
     "database": os.getenv("DB_NAME", "fake_news_db")
 }
 
-# 全局变量
-bm25 = None
-corpus = None
-
 # 数据库连接池
 def get_database_connection():
     try:
