@@ -13,4 +13,3 @@ rank_bm25
 google-cloud-firestore
 google-cloud-bigquery
 google-cloud-sql
-python-dotenv flask
