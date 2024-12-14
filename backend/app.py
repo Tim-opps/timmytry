@@ -220,9 +220,5 @@ def predict():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    port = os.environ.get('PORT')
-    if not port:
-        logging.error("PORT environment variable not set!")
-    else:
-        logging.info(f"Using port: {port}")
-    app.run(host='0.0.0.0', port=int(port))
+    port = int(os.environ.get('PORT', 5000))  # 从环境变量中获取 Render 分配的端口
+    app.run(host='0.0.0.0', port=port)        # 使用动态端口
