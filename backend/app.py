@@ -21,8 +21,7 @@ CORS(app)
 # 全局参数
 SIMILARITY_THRESHOLD = 1.2  # BM25 相似度阈值
 MAX_SEQUENCE_LENGTH = 20    # 模型输入的最大序列长度
-BM25_BATCH_SIZE = 500       # 每次加载文档的数量
-DB_LIMIT = 5000             # 数据库最大文档数
+PRECOMPUTED_BM25_FILE = "bm25_data.json"  # 本地存储的 BM25 数据
 
 # 数据库连接配置
 DB_CONFIG = {
@@ -52,39 +51,39 @@ def jieba_tokenizer(text):
     words = pseg.cut(text)
     return [word for word, flag in words if flag != 'x']  # 返回分词后的列表
 
-# 分块加载文档并初始化 BM25
-def initialize_bm25():
+# 加载预计算 BM25 数据
+def load_precomputed_bm25():
     global bm25
-    tokenized_corpus = []
-    doc_ids = []
+    try:
+        with open(PRECOMPUTED_BM25_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        corpus = data["corpus"]
+        bm25 = BM25Okapi(corpus)
+        logging.info(f"BM25 模型已加载，文档数量: {len(corpus)}")
+    except Exception as e:
+        logging.error(f"无法加载 BM25 数据: {e}")
 
+# 分块加载BM25索引（当无法一次加载全部数据时使用）
+def initialize_bm25_in_chunks(batch_size=1000):
+    global bm25
     connection = get_database_connection()
-    if not connection:
-        raise RuntimeError("数据库连接失败，无法初始化 BM25。")
-
+    if connection is None:
+        raise RuntimeError("无法连接到数据库。")
+    
     try:
         cursor = connection.cursor(dictionary=True)
-        offset = 0
-
+        cursor.execute("SELECT title, content FROM cleaned_file")
+        tokenized_corpus = []
         while True:
-            # 按批次加载文档
-            query = f"SELECT id, title, content FROM cleaned_file LIMIT {BM25_BATCH_SIZE} OFFSET {offset}"
-            cursor.execute(query)
-            batch = cursor.fetchall()
-            if not batch:
-                break  # 如果没有更多数据，退出循环
-
-            for record in batch:
-                text = record["title"] + " " + record["content"]
-                tokenized_corpus.append(jieba_tokenizer(text))
-                doc_ids.append(record["id"])
-
-            offset += BM25_BATCH_SIZE
-
-        # 初始化 BM25 模型
+            rows = cursor.fetchmany(batch_size)
+            if not rows:
+                break
+            for row in rows:
+                tokenized_corpus.append(jieba_tokenizer(row["title"] + " " + row["content"]))
         bm25 = BM25Okapi(tokenized_corpus)
-        bm25.doc_ids = doc_ids  # 保存文档 ID
-        logging.info(f"BM25 模型已加载，文档总数: {len(tokenized_corpus)}")
+        logging.info(f"BM25 模型分块加载完成，文档数量: {len(tokenized_corpus)}")
+    except Exception as e:
+        logging.error(f"BM25 分块加载失败: {e}")
     finally:
         cursor.close()
         connection.close()
@@ -112,7 +111,7 @@ def load_model_and_tokenizer():
         logging.error(f"加载 LSTM 模型或分词器失败: {e}")
 
 # 初始化 BM25 和 LSTM
-initialize_bm25()
+load_precomputed_bm25()
 load_model_and_tokenizer()
 
 # 获取最佳匹配项（BM25）
@@ -127,24 +126,8 @@ def get_best_match_bm25(input_text):
     best_score = scores[best_index]
 
     if best_score >= SIMILARITY_THRESHOLD:
-        return bm25.doc_ids[best_index], best_score
+        return best_index, best_score
     return None, None
-
-# 查询数据库记录
-def get_database_record(doc_id):
-    connection = get_database_connection()
-    if connection:
-        try:
-            cursor = connection.cursor(dictionary=True)
-            query = "SELECT * FROM cleaned_file WHERE id = %s"
-            cursor.execute(query, (doc_id,))
-            record = cursor.fetchone()
-            cursor.close()
-            connection.close()
-            return record
-        except Exception as e:
-            logging.error(f"查询数据库记录失败: {e}")
-    return None
 
 # 文本预处理
 def preprocess_texts(title):
@@ -180,14 +163,17 @@ def predict():
             return jsonify({'error': '标题过短'}), 400
 
         # 使用 BM25 获取最佳匹配
-        best_doc_id, best_score = get_best_match_bm25(input_title)
-        if not best_doc_id:
+        best_index, best_score = get_best_match_bm25(input_title)
+        if best_index is None:
             return jsonify({'error': '没有找到足够相似的数据'}), 404
 
-        # 查询数据库记录
-        best_match = get_database_record(best_doc_id)
-        if not best_match:
-            return jsonify({'error': '无法获取匹配的数据库记录'}), 500
+        # 获取匹配的文档
+        connection = get_database_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(f"SELECT title, content FROM cleaned_file LIMIT {best_index}, 1")
+        best_match = cursor.fetchone()
+        cursor.close()
+        connection.close()
 
         # 使用 LSTM 模型进行预测
         probabilities = predict_category(input_title, best_match["title"])
@@ -198,7 +184,6 @@ def predict():
         response = {
             'input_title': input_title,
             'matched_title': best_match["title"],
-            'matched_content': best_match["content"],
             'bm25_score': best_score,
             'category': category,
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
@@ -209,30 +194,6 @@ def predict():
 
     except Exception as e:
         logging.error(f"发生错误: {e}")
-        return jsonify({'error': str(e)}), 500
-
-# API 路由：获取历史记录
-@app.route('/history', methods=['GET'])
-def get_history():
-    try:
-        connection = get_database_connection()
-        if connection:
-            cursor = connection.cursor(dictionary=True)
-            query = """
-                SELECT id, query_text, result_title, bm25_score, result_category, created_at
-                FROM history
-                ORDER BY created_at DESC
-                LIMIT 20
-            """
-            cursor.execute(query)
-            history_data = cursor.fetchall()
-            cursor.close()
-            connection.close()
-            return jsonify({'history': history_data})
-        else:
-            return jsonify({'error': '无法连接到数据库'}), 500
-    except Exception as e:
-        logging.error(f"获取历史记录失败: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
