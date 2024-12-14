@@ -1,16 +1,15 @@
 import os
 import json
-import keras as kr
 import numpy as np
-import tensorflow as tf
 import jieba.posseg as pseg
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import mysql.connector
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 import logging
 import time
+import mysql.connector
+from rank_bm25 import BM25Okapi
+import keras as kr
+import tensorflow as tf
 
 # 初始化日志记录
 logging.basicConfig(level=logging.INFO)
@@ -20,12 +19,9 @@ app = Flask(__name__)
 CORS(app)
 
 # 全局参数
-MAX_SEQUENCE_LENGTH = 20
-SIMILARITY_THRESHOLD = 0.5  # TF-IDF 相似度阈值
-
-# 模型及数据的相对路径
-MODEL_PATH = os.getenv("MODEL_PATH", "FNCwithLSTM.h5")
-WORD_INDEX_PATH = os.getenv("WORD_INDEX_PATH", "word_index.json")
+SIMILARITY_THRESHOLD = 1.2  # BM25 相似度阈值
+MAX_SEQUENCE_LENGTH = 20    # 模型输入的最大序列长度
+PRECOMPUTED_BM25_FILE = "bm25_data.json"  # 本地存储的 BM25 数据
 
 # 数据库连接配置
 DB_CONFIG = {
@@ -36,91 +32,110 @@ DB_CONFIG = {
 }
 
 # 全局变量
-tfidf_vectorizer = None
-tfidf_matrix = None
-db_records = None
+bm25 = None
+corpus = None
+doc_ids = None
+model = None
+tokenizer = None
 
-# 数据库连接池
+# 数据库连接
 def get_database_connection():
     try:
         connection = mysql.connector.connect(**DB_CONFIG)
-        logging.info("Database connection established.")
+        logging.info("数据库连接成功。")
         return connection
     except mysql.connector.Error as err:
-        logging.error(f"Database connection error: {err}")
+        logging.error(f"数据库连接失败: {err}")
         return None
 
-# 加载已训练的模型
-try:
-    start_time = time.time()
-    model = kr.models.load_model(MODEL_PATH)
-    logging.info(f"Model loaded successfully. Time taken: {time.time() - start_time:.4f} seconds")
-except Exception as e:
-    logging.error(f"Error loading model: {e}")
-    model = None
-
-# 加载 word_index.json 并还原 Tokenizer
-try:
-    start_time = time.time()
-    with open(WORD_INDEX_PATH, 'r', encoding='utf-8') as f:
-        word_index = json.load(f)
-    tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=10000)  # 添加 num_words 参数
-    tokenizer.word_index = word_index
-    tokenizer.index_word = {index: word for word, index in word_index.items()}
-    logging.info(f"Tokenizer restored successfully. Time taken: {time.time() - start_time:.4f} seconds")
-except Exception as e:
-    logging.error(f"Error loading tokenizer: {e}")
-    tokenizer = None
-
-# 分词函数
+# 加载分词器
 def jieba_tokenizer(text):
     words = pseg.cut(text)
-    return ' '.join([word for word, flag in words if flag != 'x'])  # 返回分词后的文本
+    return [word for word, flag in words if flag != 'x']  # 返回分词后的列表
 
-# 初始化 TF-IDF
-def initialize_tfidf():
-    global tfidf_vectorizer, tfidf_matrix, db_records
-    connection = get_database_connection()
-    if not connection:
-        raise RuntimeError("Failed to connect to the database.")
-    
+# 加载预计算 BM25 数据
+def load_precomputed_bm25():
+    global bm25, corpus, doc_ids
     try:
-        cursor = connection.cursor(dictionary=True)
-        query = "SELECT id, title, content FROM cleaned_file"
-        cursor.execute(query)
-        db_records = cursor.fetchall()
-        corpus = [jieba_tokenizer(row["title"] + " " + row["content"]) for row in db_records]
-        tfidf_vectorizer = TfidfVectorizer()
-        tfidf_matrix = tfidf_vectorizer.fit_transform(corpus)
-        logging.info(f"TF-IDF matrix initialized with {len(corpus)} documents.")
-    finally:
-        cursor.close()
-        connection.close()
+        with open(PRECOMPUTED_BM25_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        corpus = data["corpus"]
+        doc_ids = data["doc_ids"]
+        bm25 = BM25Okapi(corpus)
+        logging.info(f"BM25 模型已加载，文档数量: {len(corpus)}")
+    except Exception as e:
+        logging.error(f"无法加载 BM25 数据: {e}")
 
-# 初始化时调用 TF-IDF
-initialize_tfidf()
+# 加载 LSTM 模型和分词器
+def load_model_and_tokenizer():
+    global model, tokenizer
+    try:
+        start_time = time.time()
+        model_path = os.getenv("MODEL_PATH", "FNCwithLSTM.h5")
+        word_index_path = os.getenv("WORD_INDEX_PATH", "word_index.json")
 
-# 匹配函数：使用 TF-IDF 和 Cosine 相似度
-def get_best_match_tfidf(input_title):
-    input_vector = tfidf_vectorizer.transform([jieba_tokenizer(input_title)])
-    similarity_scores = cosine_similarity(input_vector, tfidf_matrix).flatten()
-    best_index = np.argmax(similarity_scores)
-    best_score = similarity_scores[best_index]
-    return db_records[best_index], best_score
+        # 加载模型
+        model = kr.models.load_model(model_path)
+        logging.info(f"LSTM 模型加载成功，耗时: {time.time() - start_time:.4f} 秒")
 
-# 预处理函数
+        # 加载分词器
+        with open(word_index_path, 'r', encoding='utf-8') as f:
+            word_index = json.load(f)
+        tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=10000)
+        tokenizer.word_index = word_index
+        tokenizer.index_word = {index: word for word, index in word_index.items()}
+        logging.info("分词器加载成功。")
+    except Exception as e:
+        logging.error(f"加载 LSTM 模型或分词器失败: {e}")
+
+# 初始化 BM25 和 LSTM
+load_precomputed_bm25()
+load_model_and_tokenizer()
+
+# 获取最佳匹配项（BM25）
+def get_best_match_bm25(input_text):
+    global bm25, corpus, doc_ids
+    if bm25 is None:
+        raise RuntimeError("BM25 模型尚未加载。")
+
+    input_tokens = jieba_tokenizer(input_text)
+    scores = bm25.get_scores(input_tokens)
+    best_index = np.argmax(scores)
+    best_score = scores[best_index]
+
+    if best_score >= SIMILARITY_THRESHOLD:
+        return doc_ids[best_index], best_score
+    return None, None
+
+# 查询数据库记录
+def get_database_record(doc_id):
+    connection = get_database_connection()
+    if connection:
+        try:
+            cursor = connection.cursor(dictionary=True)
+            query = "SELECT * FROM cleaned_file WHERE id = %s"
+            cursor.execute(query, (doc_id,))
+            record = cursor.fetchone()
+            cursor.close()
+            connection.close()
+            return record
+        except Exception as e:
+            logging.error(f"查询数据库记录失败: {e}")
+    return None
+
+# 文本预处理
 def preprocess_texts(title):
     if tokenizer is None:
-        raise ValueError("Tokenizer is not initialized.")
+        raise ValueError("分词器尚未加载。")
     title_tokenized = jieba_tokenizer(title)
-    x_test = tokenizer.texts_to_sequences([title_tokenized])
+    x_test = tokenizer.texts_to_sequences([" ".join(title_tokenized)])
     x_test = kr.preprocessing.sequence.pad_sequences(x_test, maxlen=MAX_SEQUENCE_LENGTH)
     return x_test
 
 # 模型预测
 def predict_category(input_title, database_title):
     if model is None:
-        raise ValueError("Model is not loaded.")
+        raise ValueError("LSTM 模型尚未加载。")
     input_processed = preprocess_texts(input_title)
     db_processed = preprocess_texts(database_title)
     predictions = model.predict([input_processed, db_processed])
@@ -132,21 +147,26 @@ def predict():
     try:
         start_time = time.time()
         data = request.json
-        logging.info(f"Received request data: {data}")
+        logging.info(f"收到的请求数据: {data}")
         input_title = data.get('title', '').strip()
 
         if not input_title:
-            return jsonify({'error': 'Title is required'}), 400
+            return jsonify({'error': '需要提供标题'}), 400
 
         if len(input_title) < 3:
-            return jsonify({'error': 'Title is too short'}), 400
+            return jsonify({'error': '标题过短'}), 400
 
-        # 获取最佳匹配项
-        best_match, best_score = get_best_match_tfidf(input_title)
-        if best_score < SIMILARITY_THRESHOLD:
-            return jsonify({'error': 'No sufficiently similar data found in the database'}), 404
+        # 使用 BM25 获取最佳匹配
+        best_doc_id, best_score = get_best_match_bm25(input_title)
+        if not best_doc_id:
+            return jsonify({'error': '没有找到足够相似的数据'}), 404
 
-        # 使用模型进行预测
+        # 查询数据库记录
+        best_match = get_database_record(best_doc_id)
+        if not best_match:
+            return jsonify({'error': '无法获取匹配的数据库记录'}), 500
+
+        # 使用 LSTM 模型进行预测
         probabilities = predict_category(input_title, best_match["title"])
         category_index = np.argmax(probabilities)
         categories = ["無關", "同意", "不同意"]  # 中文分类
@@ -155,7 +175,8 @@ def predict():
         response = {
             'input_title': input_title,
             'matched_title': best_match["title"],
-            'tfidf_score': best_score,
+            'matched_content': best_match["content"],
+            'bm25_score': best_score,
             'category': category,
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
         }
@@ -163,27 +184,26 @@ def predict():
         # 保存历史记录
         connection = get_database_connection()
         if connection:
-            cursor = connection.cursor()
-            query = """
-                INSERT INTO history (query_text, result_category, result_fake_probability, result_real_probability)
-                VALUES (%s, %s, %s, %s)
-            """
-            cursor.execute(query, (
-                input_title,
-                category,
-                response['probabilities']["同意"],
-                response['probabilities']["無關"]
-            ))
-            connection.commit()
-            cursor.close()
-            connection.close()
-            logging.info("History data saved to database.")
+            try:
+                cursor = connection.cursor()
+                query = """
+                    INSERT INTO history (query_text, result_title, bm25_score, result_category, created_at)
+                    VALUES (%s, %s, %s, %s, NOW())
+                """
+                cursor.execute(query, (input_title, best_match["title"], best_score, category))
+                connection.commit()
+                cursor.close()
+                logging.info("历史记录已保存。")
+            except Exception as e:
+                logging.error(f"保存历史记录失败: {e}")
+            finally:
+                connection.close()
 
-        logging.info(f"Total API processing time: {time.time() - start_time:.4f} seconds")
+        logging.info(f"API 处理总时间: {time.time() - start_time:.4f} 秒")
         return jsonify(response)
 
     except Exception as e:
-        logging.error(f"Error occurred: {e}")
+        logging.error(f"发生错误: {e}")
         return jsonify({'error': str(e)}), 500
 
 # API 路由：获取历史记录
@@ -194,7 +214,7 @@ def get_history():
         if connection:
             cursor = connection.cursor(dictionary=True)
             query = """
-                SELECT id, query_text, result_category, result_fake_probability, result_real_probability, created_at
+                SELECT id, query_text, result_title, bm25_score, result_category, created_at
                 FROM history
                 ORDER BY created_at DESC
                 LIMIT 20
@@ -205,9 +225,9 @@ def get_history():
             connection.close()
             return jsonify({'history': history_data})
         else:
-            return jsonify({'error': 'Failed to connect to database'}), 500
+            return jsonify({'error': '无法连接到数据库'}), 500
     except Exception as e:
-        logging.error(f"Error fetching history: {e}")
+        logging.error(f"获取历史记录失败: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
