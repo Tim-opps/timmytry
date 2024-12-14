@@ -7,10 +7,9 @@ import jieba.posseg as pseg
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import mysql.connector
-from rank_bm25 import BM25Okapi  # BM25 实现
+from rank_bm25 import BM25Okapi
 import logging
-import time  # 引入时间模块用于计时
-from flask import Flask, request, jsonify
+import time
 from google.cloud import firestore
 
 # 初始化日志记录
@@ -41,6 +40,9 @@ bm25 = None
 corpus = None
 db_records = None
 
+# Firestore 数据库实例
+db = firestore.Client()
+
 # 数据库连接池
 def get_database_connection():
     try:
@@ -65,7 +67,7 @@ try:
     start_time = time.time()
     with open(WORD_INDEX_PATH, 'r', encoding='utf-8') as f:
         word_index = json.load(f)
-    tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=10000)  # 添加 num_words 参数
+    tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=10000)
     tokenizer.word_index = word_index
     tokenizer.index_word = {index: word for word, index in word_index.items()}
     logging.info(f"Tokenizer restored successfully. Time taken: {time.time() - start_time:.4f} seconds")
@@ -76,7 +78,7 @@ except Exception as e:
 # 分词函数
 def jieba_tokenizer(text):
     words = pseg.cut(text)
-    return [word for word, flag in words if flag != 'x']  # 返回分词后的列表
+    return [word for word, flag in words if flag != 'x']
 
 # 初始化 BM25 corpus 和数据库记录
 def initialize_bm25():
@@ -88,12 +90,9 @@ def initialize_bm25():
     try:
         start_time = time.time()
         cursor = connection.cursor(dictionary=True)
-        query = """
-        SELECT id, title, content, classification
-        FROM cleaned_file
-        """
+        query = "SELECT id, title, content, classification FROM cleaned_file"
         cursor.execute(query)
-        db_records = cursor.fetchall()  # 保存所有记录到全局变量
+        db_records = cursor.fetchall()
         corpus = [jieba_tokenizer(row["title"] + " " + row["content"]) for row in db_records]
         bm25 = BM25Okapi(corpus)
         logging.info(f"BM25 corpus initialized. Time taken: {time.time() - start_time:.4f} seconds")
@@ -162,17 +161,14 @@ def predict():
         probabilities = predict_category(input_title, best_match["title"])
         logging.info(f"Model prediction time: {time.time() - input_preprocess_time:.4f} seconds")
         category_index = np.argmax(probabilities)
-        categories = ["無關", "同意", "不同意"]  # 中文分類
+        categories = ["無關", "同意", "不同意"]
         category = categories[category_index]
 
         response = {
             'input_title': input_title,
-            'matched_title': best_match["title"],
-            'matched_content': best_match["content"],
             'bm25_score': best_match["bm25_score"],
             'category': category,
-            'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)},
-            'database_entry': best_match
+            'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
         }
         logging.info(f"Total API processing time: {time.time() - start_time:.4f} seconds")
         return jsonify(response)
@@ -181,17 +177,13 @@ def predict():
         logging.error(f"Error occurred: {e}")
         return jsonify({'error': str(e)}), 500
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
-
-
 @app.route('/submit', methods=['POST'])
 def submit():
     data = request.json
     query_text = data.get('query_text')
     result = data.get('result')
 
-    # 儲存到 Firestore
+    # 保存到 Firestore
     db.collection('queries').add({
         'query_text': query_text,
         'result': result
@@ -200,7 +192,4 @@ def submit():
     return jsonify({'message': 'Data saved successfully'}), 200
 
 if __name__ == '__main__':
-    app.run(debug=True)
-
-
-
+    app.run(host='0.0.0.0', port=int(os.getenv("PORT", 5000)), debug=False)
