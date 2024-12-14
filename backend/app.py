@@ -7,9 +7,10 @@ import jieba.posseg as pseg
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import mysql.connector
-from rank_bm25 import BM25Okapi  # BM25 实现
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 import logging
-import time  # 引入时间模块用于计时
+import time
 
 # 初始化日志记录
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +21,7 @@ CORS(app)
 
 # 全局参数
 MAX_SEQUENCE_LENGTH = 20
-SIMILARITY_THRESHOLD = 1.5  # BM25 阈值，通常调整为 1.2 到 2.0 的范围
+SIMILARITY_THRESHOLD = 0.5  # TF-IDF 相似度阈值
 
 # 模型及数据的相对路径
 MODEL_PATH = os.getenv("MODEL_PATH", "FNCwithLSTM.h5")
@@ -33,6 +34,11 @@ DB_CONFIG = {
     "password": os.getenv("DB_PASSWORD", "0423"),
     "database": os.getenv("DB_NAME", "fake_news_db")
 }
+
+# 全局变量
+tfidf_vectorizer = None
+tfidf_matrix = None
+db_records = None
 
 # 数据库连接池
 def get_database_connection():
@@ -69,45 +75,45 @@ except Exception as e:
 # 分词函数
 def jieba_tokenizer(text):
     words = pseg.cut(text)
-    return [word for word, flag in words if flag != 'x']  # 返回分词后的列表
+    return ' '.join([word for word, flag in words if flag != 'x'])  # 返回分词后的文本
 
-# 分批加载数据以降低内存使用
-def get_corpus_batches(batch_size=500, limit=5000):
+# 初始化 TF-IDF
+def initialize_tfidf():
+    global tfidf_vectorizer, tfidf_matrix, db_records
     connection = get_database_connection()
     if not connection:
         raise RuntimeError("Failed to connect to the database.")
     
     try:
         cursor = connection.cursor(dictionary=True)
-        cursor.execute(f"SELECT title, content FROM cleaned_file LIMIT {limit}")
-        while True:
-            rows = cursor.fetchmany(batch_size)
-            if not rows:
-                break
-            yield [jieba_tokenizer(row["title"] + " " + row["content"]) for row in rows]
+        query = "SELECT id, title, content FROM cleaned_file"
+        cursor.execute(query)
+        db_records = cursor.fetchall()
+        corpus = [jieba_tokenizer(row["title"] + " " + row["content"]) for row in db_records]
+        tfidf_vectorizer = TfidfVectorizer()
+        tfidf_matrix = tfidf_vectorizer.fit_transform(corpus)
+        logging.info(f"TF-IDF matrix initialized with {len(corpus)} documents.")
     finally:
         cursor.close()
         connection.close()
 
-# 延迟初始化 BM25
-def initialize_bm25():
-    global bm25
-    corpus_batches = get_corpus_batches(batch_size=500, limit=5000)
-    tokenized_corpus = []
-    for batch in corpus_batches:
-        tokenized_corpus.extend(batch)
-    bm25 = BM25Okapi(tokenized_corpus)
-    logging.info(f"BM25 initialized with {len(tokenized_corpus)} documents.")
+# 初始化时调用 TF-IDF
+initialize_tfidf()
 
-# 初始化时调用优化的 BM25 函数
-initialize_bm25()
+# 匹配函数：使用 TF-IDF 和 Cosine 相似度
+def get_best_match_tfidf(input_title):
+    input_vector = tfidf_vectorizer.transform([jieba_tokenizer(input_title)])
+    similarity_scores = cosine_similarity(input_vector, tfidf_matrix).flatten()
+    best_index = np.argmax(similarity_scores)
+    best_score = similarity_scores[best_index]
+    return db_records[best_index], best_score
 
 # 预处理函数
 def preprocess_texts(title):
     if tokenizer is None:
         raise ValueError("Tokenizer is not initialized.")
     title_tokenized = jieba_tokenizer(title)
-    x_test = tokenizer.texts_to_sequences([" ".join(title_tokenized)])
+    x_test = tokenizer.texts_to_sequences([title_tokenized])
     x_test = kr.preprocessing.sequence.pad_sequences(x_test, maxlen=MAX_SEQUENCE_LENGTH)
     return x_test
 
@@ -120,20 +126,67 @@ def predict_category(input_title, database_title):
     predictions = model.predict([input_processed, db_processed])
     return predictions
 
-# 使用已初始化的 BM25 进行匹配
-def get_best_match_bm25(input_title):
-    input_tokens = jieba_tokenizer(input_title)
-    start_time = time.time()
-    scores = bm25.get_scores(input_tokens)
-    logging.info(f"BM25 scoring time: {time.time() - start_time:.4f} seconds")
+# API 路由：预测
+@app.route('/predict', methods=['POST'])
+def predict():
+    try:
+        start_time = time.time()
+        data = request.json
+        logging.info(f"Received request data: {data}")
+        input_title = data.get('title', '').strip()
 
-    best_index = np.argmax(scores)
-    best_score = scores[best_index]
-    if best_score >= SIMILARITY_THRESHOLD:
-        return best_index, best_score
-    return None, None
+        if not input_title:
+            return jsonify({'error': 'Title is required'}), 400
 
-# 增加历史记录的 API
+        if len(input_title) < 3:
+            return jsonify({'error': 'Title is too short'}), 400
+
+        # 获取最佳匹配项
+        best_match, best_score = get_best_match_tfidf(input_title)
+        if best_score < SIMILARITY_THRESHOLD:
+            return jsonify({'error': 'No sufficiently similar data found in the database'}), 404
+
+        # 使用模型进行预测
+        probabilities = predict_category(input_title, best_match["title"])
+        category_index = np.argmax(probabilities)
+        categories = ["無關", "同意", "不同意"]  # 中文分类
+        category = categories[category_index]
+
+        response = {
+            'input_title': input_title,
+            'matched_title': best_match["title"],
+            'tfidf_score': best_score,
+            'category': category,
+            'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
+        }
+
+        # 保存历史记录
+        connection = get_database_connection()
+        if connection:
+            cursor = connection.cursor()
+            query = """
+                INSERT INTO history (query_text, result_category, result_fake_probability, result_real_probability)
+                VALUES (%s, %s, %s, %s)
+            """
+            cursor.execute(query, (
+                input_title,
+                category,
+                response['probabilities']["同意"],
+                response['probabilities']["無關"]
+            ))
+            connection.commit()
+            cursor.close()
+            connection.close()
+            logging.info("History data saved to database.")
+
+        logging.info(f"Total API processing time: {time.time() - start_time:.4f} seconds")
+        return jsonify(response)
+
+    except Exception as e:
+        logging.error(f"Error occurred: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# API 路由：获取历史记录
 @app.route('/history', methods=['GET'])
 def get_history():
     try:
@@ -157,67 +210,6 @@ def get_history():
         logging.error(f"Error fetching history: {e}")
         return jsonify({'error': str(e)}), 500
 
-# API 路由
-@app.route('/predict', methods=['POST'])
-def predict():
-    try:
-        start_time = time.time()
-        data = request.json
-        logging.info(f"Received request data: {data}")
-        input_title = data.get('title', '').strip()
-
-        if not input_title:
-            return jsonify({'error': 'Title is required'}), 400
-
-        if len(input_title) < 3:
-            return jsonify({'error': 'Title is too short'}), 400
-
-        # 获取最佳匹配项
-        best_index, best_score = get_best_match_bm25(input_title)
-        if best_index is None:
-            return jsonify({'error': 'No sufficiently similar data found in the database'}), 404
-
-        # 使用模型进行预测
-        connection = get_database_connection()
-        cursor = connection.cursor(dictionary=True)
-        cursor.execute(f"SELECT title FROM cleaned_file LIMIT 5000")
-        rows = cursor.fetchall()
-        best_match = rows[best_index]
-        probabilities = predict_category(input_title, best_match["title"])
-        category_index = np.argmax(probabilities)
-        categories = ["無關", "同意", "不同意"]  # 中文分類
-        category = categories[category_index]
-
-        response = {
-            'input_title': input_title,
-            'matched_title': best_match["title"],
-            'bm25_score': best_score,
-            'category': category,
-            'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
-        }
-
-        # 保存历史记录
-        query = """
-            INSERT INTO history (query_text, result_category, result_fake_probability, result_real_probability)
-            VALUES (%s, %s, %s, %s)
-        """
-        cursor.execute(query, (
-            input_title,
-            category,
-            response['probabilities']["同意"],
-            response['probabilities']["無關"]
-        ))
-        connection.commit()
-        cursor.close()
-        connection.close()
-
-        logging.info(f"Total API processing time: {time.time() - start_time:.4f} seconds")
-        return jsonify(response)
-
-    except Exception as e:
-        logging.error(f"Error occurred: {e}")
-        return jsonify({'error': str(e)}), 500
-
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))  # 从环境变量中获取 Render 分配的端口
-    app.run(host='0.0.0.0', port=port)        # 使用动态端口
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
