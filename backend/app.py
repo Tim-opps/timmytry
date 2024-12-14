@@ -10,6 +10,8 @@ import mysql.connector
 from rank_bm25 import BM25Okapi  # BM25 实现
 import logging
 import time  # 引入时间模块用于计时
+from flask import Flask, request, jsonify
+from google.cloud import firestore
 
 # 初始化日志记录
 logging.basicConfig(level=logging.INFO)
@@ -181,3 +183,24 @@ def predict():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
+
+
+@app.route('/submit', methods=['POST'])
+def submit():
+    data = request.json
+    query_text = data.get('query_text')
+    result = data.get('result')
+
+    # 儲存到 Firestore
+    db.collection('queries').add({
+        'query_text': query_text,
+        'result': result
+    })
+
+    return jsonify({'message': 'Data saved successfully'}), 200
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
