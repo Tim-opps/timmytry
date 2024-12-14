@@ -115,3 +115,43 @@ function resetResult() {
 
 // 監聽重置按鈕點擊事件
 document.querySelector('button[type="reset"]').addEventListener('click', resetResult);
+
+
+
+document.getElementById('submit').addEventListener('click', (event) => {
+    // 防止表單預設的提交行為（刷新頁面）
+    event.preventDefault();
+
+    // 獲取輸入的文字內容
+    const inputText = document.getElementById('inputtext').value.trim();
+
+    // 檢查輸入是否為空
+    if (!inputText) {
+        alert("請輸入有疑慮的假消息！");
+        return;
+    }
+
+    // 發送到後端的API進行處理
+    fetch('/predict', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ title: inputText }) // 傳遞輸入內容到後端
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            // 顯示錯誤信息
+            alert(`錯誤：${data.error}`);
+        } else {
+            // 在這裡處理成功的回應結果
+            console.log("預測結果：", data);
+            alert(`結果：分類為 "${data.category}"\n相似標題：${data.matched_title}`);
+        }
+    })
+    .catch(error => {
+        console.error('發生錯誤:', error);
+        alert("發送請求時發生錯誤，請稍後再試！");
+    });
+});
