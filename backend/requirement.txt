@@ -11,4 +11,3 @@ scikit-learn
 gunicorn
 rank_bm25
 google-cloud-firestore
-google-cloud-sql
