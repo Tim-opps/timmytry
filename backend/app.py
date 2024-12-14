@@ -220,6 +220,9 @@ def predict():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))  # 动态获取端口号
-    app.run(host='0.0.0.0', port=port, debug=False)
-
+    port = os.environ.get('PORT')
+    if not port:
+        logging.error("PORT environment variable not set!")
+    else:
+        logging.info(f"Using port: {port}")
+    app.run(host='0.0.0.0', port=int(port))
