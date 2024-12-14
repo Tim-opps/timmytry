@@ -155,3 +155,43 @@ document.getElementById('submit').addEventListener('click', (event) => {
         alert("發送請求時發生錯誤，請稍後再試！");
     });
 });
+
+
+async function loadRandomNews() {
+    try {
+        // 向後端發送請求獲取隨機新聞
+        const response = await fetch('/get-random-news');
+        if (!response.ok) {
+            throw new Error(`伺服器錯誤: ${response.statusText}`);
+        }
+
+        // 解析數據
+        const data = await response.json();
+        if (data.error) {
+            console.error("後端錯誤：", data.error);
+            return;
+        }
+
+        // 動態更新 HTML
+        const trendFakeNews = document.querySelector('.trend-fakenews');
+        trendFakeNews.innerHTML = ''; // 清空現有內容
+
+        data.news.forEach(news => {
+            const newsHTML = `
+                <div class="news">
+                    <a href="#" class="article">
+                        <h4>${news.title}</h4>
+                        <p>${news.content}</p>
+                    </a>
+                </div>
+            `;
+            trendFakeNews.insertAdjacentHTML('beforeend', newsHTML);
+        });
+    } catch (error) {
+        console.error("加載新聞時發生錯誤：", error.message);
+    }
+}
+
+// 在頁面加載後自動執行
+document.addEventListener('DOMContentLoaded', loadRandomNews);
+
