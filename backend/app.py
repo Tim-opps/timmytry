@@ -7,17 +7,9 @@ import jieba.posseg as pseg
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import mysql.connector
-from rank_bm25 import BM25Okapi
+from rank_bm25 import BM25Okapi  # BM25 实现
 import logging
-import time
-from google.cloud import firestore
-
-
-# 設定 GCP JSON 憑證
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "try1.json"
-
-# 初始化 Firestore 客戶端
-db = firestore.Client()
+import time  # 引入时间模块用于计时
 
 # 初始化日志记录
 logging.basicConfig(level=logging.INFO)
@@ -47,9 +39,6 @@ bm25 = None
 corpus = None
 db_records = None
 
-# Firestore 数据库实例
-db = firestore.Client()
-
 # 数据库连接池
 def get_database_connection():
     try:
@@ -74,7 +63,7 @@ try:
     start_time = time.time()
     with open(WORD_INDEX_PATH, 'r', encoding='utf-8') as f:
         word_index = json.load(f)
-    tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=10000)
+    tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=10000)  # 添加 num_words 参数
     tokenizer.word_index = word_index
     tokenizer.index_word = {index: word for word, index in word_index.items()}
     logging.info(f"Tokenizer restored successfully. Time taken: {time.time() - start_time:.4f} seconds")
@@ -85,7 +74,7 @@ except Exception as e:
 # 分词函数
 def jieba_tokenizer(text):
     words = pseg.cut(text)
-    return [word for word, flag in words if flag != 'x']
+    return [word for word, flag in words if flag != 'x']  # 返回分词后的列表
 
 # 初始化 BM25 corpus 和数据库记录
 def initialize_bm25():
@@ -97,9 +86,12 @@ def initialize_bm25():
     try:
         start_time = time.time()
         cursor = connection.cursor(dictionary=True)
-        query = "SELECT id, title, content, classification FROM cleaned_file"
+        query = """
+        SELECT id, title, content, classification
+        FROM cleaned_file
+        """
         cursor.execute(query)
-        db_records = cursor.fetchall()
+        db_records = cursor.fetchall()  # 保存所有记录到全局变量
         corpus = [jieba_tokenizer(row["title"] + " " + row["content"]) for row in db_records]
         bm25 = BM25Okapi(corpus)
         logging.info(f"BM25 corpus initialized. Time taken: {time.time() - start_time:.4f} seconds")
@@ -143,6 +135,30 @@ def get_best_match_bm25(input_title):
         return best_match
     return None
 
+# 增加历史记录的 API
+@app.route('/history', methods=['GET'])
+def get_history():
+    try:
+        connection = get_database_connection()
+        if connection:
+            cursor = connection.cursor(dictionary=True)
+            query = """
+                SELECT id, query_text, result_category, result_fake_probability, result_real_probability, created_at
+                FROM history
+                ORDER BY created_at DESC
+                LIMIT 20
+            """
+            cursor.execute(query)
+            history_data = cursor.fetchall()
+            cursor.close()
+            connection.close()
+            return jsonify({'history': history_data})
+        else:
+            return jsonify({'error': 'Failed to connect to database'}), 500
+    except Exception as e:
+        logging.error(f"Error fetching history: {e}")
+        return jsonify({'error': str(e)}), 500
+
 # API 路由
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -164,19 +180,38 @@ def predict():
             return jsonify({'error': 'No sufficiently similar data found in the database'}), 404
 
         # 使用模型进行预测
-        input_preprocess_time = time.time()
         probabilities = predict_category(input_title, best_match["title"])
-        logging.info(f"Model prediction time: {time.time() - input_preprocess_time:.4f} seconds")
         category_index = np.argmax(probabilities)
-        categories = ["無關", "同意", "不同意"]
+        categories = ["無關", "同意", "不同意"]  # 中文分類
         category = categories[category_index]
 
         response = {
             'input_title': input_title,
+            'matched_title': best_match["title"],
             'bm25_score': best_match["bm25_score"],
             'category': category,
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
         }
+
+        # 将数据存入历史记录表
+        connection = get_database_connection()
+        if connection:
+            cursor = connection.cursor()
+            query = """
+                INSERT INTO history (query_text, result_category, result_fake_probability, result_real_probability)
+                VALUES (%s, %s, %s, %s)
+            """
+            cursor.execute(query, (
+                input_title,
+                category,
+                response['probabilities']["同意"],
+                response['probabilities']["無關"]
+            ))
+            connection.commit()
+            cursor.close()
+            connection.close()
+            logging.info("History data saved to database.")
+
         logging.info(f"Total API processing time: {time.time() - start_time:.4f} seconds")
         return jsonify(response)
 
@@ -184,19 +219,5 @@ def predict():
         logging.error(f"Error occurred: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/submit', methods=['POST'])
-def submit():
-    data = request.json
-    query_text = data.get('query_text')
-    result = data.get('result')
-
-    # 保存到 Firestore
-    db.collection('queries').add({
-        'query_text': query_text,
-        'result': result
-    })
-
-    return jsonify({'message': 'Data saved successfully'}), 200
-
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.getenv("PORT", 5000)), debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=False)
