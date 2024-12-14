@@ -12,6 +12,13 @@ import logging
 import time
 from google.cloud import firestore
 
+
+# 設定 GCP JSON 憑證
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "try1.json"
+
+# 初始化 Firestore 客戶端
+db = firestore.Client()
+
 # 初始化日志记录
 logging.basicConfig(level=logging.INFO)
 
