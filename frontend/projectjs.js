@@ -173,8 +173,8 @@ document.addEventListener("DOMContentLoaded", function () {
             const newsData = rows
                 .filter(row => row.trim()) // 過濾空行
                 .map(row => {
-                    const [id, content, title, classification] = row.split(",").map(item => item.trim());
-                    return { id, content, title, classification };
+                    const [id,titlecontent , , classification] = row.split(",").map(item => item.trim());
+                    return { id,titlecontent , , classification };
                 });
 
             // 篩選 classification = 1 的資料
