@@ -1,13 +1,12 @@
 import os
 import json
 import numpy as np
-import jieba
+import pandas as pd
 import jieba.posseg as pseg
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
 import time
-import pandas as pd
 import keras as kr
 import tensorflow as tf
 
@@ -21,21 +20,13 @@ CORS(app)
 # 全局参数
 MAX_SEQUENCE_LENGTH = 20    # 模型输入的最大序列长度
 SIMILARITY_THRESHOLD = 0.5  # 数据库匹配的最低分数
-CSV_FILE_PATH = "datacombined_1_tokenized.csv"  # 分词后的 CSV 文件
+CSV_FILE = "datacombined_1_tokenized.csv"  # 分词后的 CSV 文件路径
+HISTORY_CSV = "history.csv"   # 历史记录 CSV 文件路径
 
 # 全局变量
 model = None
 tokenizer = None
-csv_data = None
-
-# 加载 CSV 数据
-try:
-    logging.info(f"正在加载 CSV 文件 {CSV_FILE_PATH} ...")
-    csv_data = pd.read_csv(CSV_FILE_PATH)
-    logging.info(f"CSV 文件加载成功，包含 {len(csv_data)} 条记录。")
-except Exception as e:
-    logging.error(f"加载 CSV 文件失败：{e}")
-    exit()
+data = None  # 存储分词后的 CSV 数据
 
 # 加载 LSTM 模型和分词器
 def load_model_and_tokenizer():
@@ -61,41 +52,51 @@ def load_model_and_tokenizer():
 
 load_model_and_tokenizer()
 
-# 文本预处理
-def preprocess_texts(title):
-    if tokenizer is None:
-        raise ValueError("分词器尚未加载。")
-    title_tokenized = " ".join(jieba.cut(title))
-    x_test = tokenizer.texts_to_sequences([title_tokenized])
-    x_test = kr.preprocessing.sequence.pad_sequences(x_test, maxlen=MAX_SEQUENCE_LENGTH)
-    return x_test
+# 加载 CSV 数据
+def load_csv_data():
+    global data
+    try:
+        data = pd.read_csv(CSV_FILE)
+        logging.info(f"分词后的 CSV 文件已加载，共 {len(data)} 条记录。")
+    except Exception as e:
+        logging.error(f"加载 CSV 文件失败: {e}")
+
+load_csv_data()
+
+# 分词函数
+def jieba_tokenizer(text):
+    words = pseg.cut(text)
+    return [word for word, flag in words if flag != 'x']  # 返回分词后的列表
 
 # CSV 匹配函数
 def find_best_match(input_text):
     best_match = None
     best_score = 0
 
-    try:
-        input_tokens = set(jieba.cut(input_text))
+    for _, row in data.iterrows():
+        title_tokens = row['title'].split()
+        content_tokens = row['content'].split()
+        combined_text = set(title_tokens + content_tokens)
+        input_tokens = set(jieba_tokenizer(input_text))
 
-        for _, row in csv_data.iterrows():
-            title_tokens = set(row['tokenized_title'].split())
-            content_tokens = set(row['tokenized_content'].split())
-            combined_tokens = title_tokens | content_tokens
+        # 简单匹配分数计算
+        common_tokens = input_tokens & combined_text
+        score = len(common_tokens) / len(input_tokens)
 
-            # 计算简单的相似度分数
-            common_tokens = input_tokens & combined_tokens
-            score = len(common_tokens) / len(input_tokens)
+        if score > best_score and score >= SIMILARITY_THRESHOLD:
+            best_score = score
+            best_match = row
 
-            if score > best_score and score >= SIMILARITY_THRESHOLD:
-                best_score = score
-                best_match = row
+    return best_match, best_score
 
-        return best_match, best_score
-
-    except Exception as e:
-        logging.error(f"匹配过程中发生错误: {e}")
-        return None, 0
+# 文本预处理
+def preprocess_texts(title):
+    if tokenizer is None:
+        raise ValueError("分词器尚未加载。")
+    title_tokenized = jieba_tokenizer(title)
+    x_test = tokenizer.texts_to_sequences([" ".join(title_tokenized)])
+    x_test = kr.preprocessing.sequence.pad_sequences(x_test, maxlen=MAX_SEQUENCE_LENGTH)
+    return x_test
 
 # 模型预测
 def predict_category(input_title, database_title):
@@ -105,6 +106,25 @@ def predict_category(input_title, database_title):
     db_processed = preprocess_texts(database_title)
     predictions = model.predict([input_processed, db_processed])
     return predictions
+
+# 保存历史记录到 CSV
+def save_history(input_title, matched_title, category, probabilities):
+    try:
+        history_data = {
+            "query_text": input_title,
+            "matched_title": matched_title,
+            "result_category": category,
+            "fake_probability": probabilities.get("不同意", 0),
+            "real_probability": probabilities.get("同意", 0),
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        if not os.path.exists(HISTORY_CSV):
+            pd.DataFrame([history_data]).to_csv(HISTORY_CSV, index=False)
+        else:
+            pd.DataFrame([history_data]).to_csv(HISTORY_CSV, mode='a', header=False, index=False)
+        logging.info("历史记录已保存。")
+    except Exception as e:
+        logging.error(f"保存历史记录失败: {e}")
 
 # API 路由：预测
 @app.route('/predict', methods=['POST'])
@@ -129,13 +149,12 @@ def predict():
         best_match, best_score = find_best_match(input_title)
         if best_match is None:
             return jsonify({'error': '没有找到足够相似的数据'}), 404
-
         match_end_time = time.time()
         logging.info(f"CSV 匹配耗时: {match_end_time - match_start_time:.4f} 秒")
 
         # Step 3: 使用 LSTM 模型进行预测
         model_start_time = time.time()
-        probabilities = predict_category(input_title, best_match["tokenized_title"])
+        probabilities = predict_category(input_title, best_match["title"])
         model_end_time = time.time()
         logging.info(f"LSTM 模型预测耗时: {model_end_time - model_start_time:.4f} 秒")
 
@@ -146,13 +165,17 @@ def predict():
 
         response = {
             'input_title': input_title,
-            'matched_title': best_match["tokenized_title"],
-            'matched_content': best_match["tokenized_content"],
+            'matched_title': best_match["title"],
+            'matched_content': best_match["content"],
             'match_score': best_score,
             'category': category,
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
         }
 
+        # 保存历史记录
+        save_history(input_title, best_match["title"], category, response['probabilities'])
+
+        # 总耗时记录
         total_time = time.time() - start_time
         logging.info(f"API 处理总时间: {total_time:.4f} 秒")
         return jsonify(response)
@@ -161,10 +184,18 @@ def predict():
         logging.error(f"发生错误: {e}")
         return jsonify({'error': str(e)}), 500
 
-# API 路由：获取历史记录（示例：仅保留接口结构，不存储历史记录）
+# API 路由：获取历史记录
 @app.route('/history', methods=['GET'])
 def get_history():
-    return jsonify({'message': '当前未启用历史记录存储功能。'}), 200
+    try:
+        if not os.path.exists(HISTORY_CSV):
+            return jsonify({'history': []})
+
+        history_data = pd.read_csv(HISTORY_CSV).to_dict(orient='records')
+        return jsonify({'history': history_data})
+    except Exception as e:
+        logging.error(f"获取历史记录失败: {e}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
