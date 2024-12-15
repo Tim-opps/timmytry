@@ -197,6 +197,18 @@ def get_history():
         logging.error(f"获取历史记录失败: {e}")
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/')
+def index():
+    # 讀取 CSV 文件
+    data = pd.read_csv('datacombined_1.csv')
+    
+    # 隨機抽取4筆數據
+    sampled_data = data.sample(n=4).to_dict(orient='records')
+    
+    # 將抽取的數據傳遞到模板
+    return render_template('trend.html', data=sampled_data)
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
