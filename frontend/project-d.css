@@ -1,4 +1,5 @@
  .tableauPlaceholder{
-        margin-top: 80px;
+        position: fixed;
+    top: 90px;
         margin: auto;
     }
