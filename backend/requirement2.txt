@@ -3,3 +3,4 @@ google-cloud-bigquery
 google-cloud-sql
 mysql-connector-python 
 gunicorn
+mysql.connector
