@@ -6,7 +6,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
 import time
-import mysql.connector
+import pandas as pd
 import keras as kr
 import tensorflow as tf
 
@@ -20,56 +20,21 @@ CORS(app)
 # 全局参数
 MAX_SEQUENCE_LENGTH = 20    # 模型输入的最大序列长度
 SIMILARITY_THRESHOLD = 0.5  # 数据库匹配的最低分数
-
-# 数据库连接配置
-DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "34.67.248.245"),
-    "user": os.getenv("DB_USER", "tps"),
-    "password": os.getenv("DB_PASSWORD", "0423"),
-    "database": os.getenv("DB_NAME", "fake_news_db")
-}
+CSV_FILE_PATH = "cleaned_file_tokenized.csv"  # 分词后的 CSV 文件
 
 # 全局变量
 model = None
 tokenizer = None
+csv_data = None
 
-# 数据库连接
-
-def get_database_connection():
-    try:
-        connection = mysql.connector.connect(**DB_CONFIG)
-        logging.info("数据库连接成功。")
-        return connection
-    except mysql.connector.Error as err:
-        logging.error(f"数据库连接失败: {err}")
-        return None
-
-# 创建 history 表（如果不存在）
-def create_history_table():
-    connection = get_database_connection()
-    if connection:
-        try:
-            cursor = connection.cursor()
-            query = """
-                CREATE TABLE IF NOT EXISTS history (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    query_text TEXT NOT NULL,
-                    matched_title TEXT,
-                    result_category VARCHAR(50),
-                    fake_probability FLOAT,
-                    real_probability FLOAT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """
-            cursor.execute(query)
-            connection.commit()
-            logging.info("history 表已创建。")
-        except Exception as e:
-            logging.error(f"创建 history 表失败: {e}")
-        finally:
-            connection.close()
-
-create_history_table()
+# 加载 CSV 数据
+try:
+    logging.info(f"正在加载 CSV 文件 {CSV_FILE_PATH} ...")
+    csv_data = pd.read_csv(CSV_FILE_PATH)
+    logging.info(f"CSV 文件加载成功，包含 {len(csv_data)} 条记录。")
+except Exception as e:
+    logging.error(f"加载 CSV 文件失败：{e}")
+    exit()
 
 # 加载 LSTM 模型和分词器
 def load_model_and_tokenizer():
@@ -95,53 +60,41 @@ def load_model_and_tokenizer():
 
 load_model_and_tokenizer()
 
-# 分词函数
-def jieba_tokenizer(text):
-    words = pseg.cut(text)
-    return [word for word, flag in words if flag != 'x']  # 返回分词后的列表
-
-# 数据库匹配函数
-def find_best_match(input_text):
-    connection = get_database_connection()
-    if not connection:
-        raise RuntimeError("无法连接到数据库。")
-
-    try:
-        cursor = connection.cursor(dictionary=True)
-        query = "SELECT id, title, content FROM cleaned_file LIMIT 200 ;"
-        cursor.execute(query)
-        records = cursor.fetchall()
-
-        best_match = None
-        best_score = 0
-
-        for record in records:
-            title_tokens = jieba_tokenizer(record['title'])
-            content_tokens = jieba_tokenizer(record['content'])
-            combined_text = " ".join(title_tokens + content_tokens)
-            input_tokens = " ".join(jieba_tokenizer(input_text))
-
-            # 简单匹配分数计算
-            common_tokens = set(input_tokens.split()) & set(combined_text.split())
-            score = len(common_tokens) / len(set(input_tokens.split()))
-
-            if score > best_score and score >= SIMILARITY_THRESHOLD:
-                best_score = score
-                best_match = record
-
-        return best_match, best_score
-
-    finally:
-        connection.close()
-
 # 文本预处理
 def preprocess_texts(title):
     if tokenizer is None:
         raise ValueError("分词器尚未加载。")
-    title_tokenized = jieba_tokenizer(title)
-    x_test = tokenizer.texts_to_sequences([" ".join(title_tokenized)])
+    title_tokenized = " ".join(jieba.cut(title))
+    x_test = tokenizer.texts_to_sequences([title_tokenized])
     x_test = kr.preprocessing.sequence.pad_sequences(x_test, maxlen=MAX_SEQUENCE_LENGTH)
     return x_test
+
+# CSV 匹配函数
+def find_best_match(input_text):
+    best_match = None
+    best_score = 0
+
+    try:
+        input_tokens = set(jieba.cut(input_text))
+
+        for _, row in csv_data.iterrows():
+            title_tokens = set(row['tokenized_title'].split())
+            content_tokens = set(row['tokenized_content'].split())
+            combined_tokens = title_tokens | content_tokens
+
+            # 计算简单的相似度分数
+            common_tokens = input_tokens & combined_tokens
+            score = len(common_tokens) / len(input_tokens)
+
+            if score > best_score and score >= SIMILARITY_THRESHOLD:
+                best_score = score
+                best_match = row
+
+        return best_match, best_score
+
+    except Exception as e:
+        logging.error(f"匹配过程中发生错误: {e}")
+        return None, 0
 
 # 模型预测
 def predict_category(input_title, database_title):
@@ -169,67 +122,36 @@ def predict():
 
         if len(input_title) < 3:
             return jsonify({'error': '标题过短'}), 400
-        step1_time = time.time()
-        logging.info(f"解析请求数据耗时: {step1_time - start_time:.4f} 秒")
 
-        # Step 2: 数据库匹配
+        # Step 2: CSV 匹配
         match_start_time = time.time()
         best_match, best_score = find_best_match(input_title)
-        if not best_match:
+        if best_match is None:
             return jsonify({'error': '没有找到足够相似的数据'}), 404
+
         match_end_time = time.time()
-        logging.info(f"数据库匹配耗时: {match_end_time - match_start_time:.4f} 秒")
+        logging.info(f"CSV 匹配耗时: {match_end_time - match_start_time:.4f} 秒")
 
         # Step 3: 使用 LSTM 模型进行预测
         model_start_time = time.time()
-        probabilities = predict_category(input_title, best_match["title"])
+        probabilities = predict_category(input_title, best_match["tokenized_title"])
         model_end_time = time.time()
         logging.info(f"LSTM 模型预测耗时: {model_end_time - model_start_time:.4f} 秒")
 
         # Step 4: 准备响应数据
-        response_start_time = time.time()
         category_index = np.argmax(probabilities)
         categories = ["無關", "同意", "不同意"]  # 中文分类
         category = categories[category_index]
 
         response = {
             'input_title': input_title,
-            'matched_title': best_match["title"],
-            'matched_content': best_match["content"],
+            'matched_title': best_match["tokenized_title"],
+            'matched_content': best_match["tokenized_content"],
             'match_score': best_score,
             'category': category,
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
         }
-        response_end_time = time.time()
-        logging.info(f"准备响应数据耗时: {response_end_time - response_start_time:.4f} 秒")
 
-        # Step 5: 保存历史记录
-        history_start_time = time.time()
-        connection = get_database_connection()
-        if connection:
-            try:
-                cursor = connection.cursor()
-                query = """
-                    INSERT INTO history (query_text, matched_title, result_category, fake_probability, real_probability)
-                    VALUES (%s, %s, %s, %s, %s)
-                """
-                cursor.execute(query, (
-                    input_title,
-                    best_match["title"],
-                    category,
-                    response['probabilities'].get("不同意", 0),
-                    response['probabilities'].get("同意", 0)
-                ))
-                connection.commit()
-                logging.info("历史记录已保存。")
-            except Exception as e:
-                logging.error(f"保存历史记录失败: {e}")
-            finally:
-                connection.close()
-        history_end_time = time.time()
-        logging.info(f"保存历史记录耗时: {history_end_time - history_start_time:.4f} 秒")
-
-        # 总耗时记录
         total_time = time.time() - start_time
         logging.info(f"API 处理总时间: {total_time:.4f} 秒")
         return jsonify(response)
@@ -238,49 +160,10 @@ def predict():
         logging.error(f"发生错误: {e}")
         return jsonify({'error': str(e)}), 500
 
-
-# API 路由：获取历史记录
+# API 路由：获取历史记录（示例：仅保留接口结构，不存储历史记录）
 @app.route('/history', methods=['GET'])
 def get_history():
-    try:
-        connection = get_database_connection()
-        if connection:
-            cursor = connection.cursor(dictionary=True)
-            query = """
-                SELECT id, query_text, matched_title, result_category, fake_probability, real_probability, created_at
-                FROM history
-                ORDER BY created_at DESC
-                LIMIT 20
-            """
-            cursor.execute(query)
-            history_data = cursor.fetchall()
-            cursor.close()
-            connection.close()
-            return jsonify({'history': history_data})
-        else:
-            return jsonify({'error': '无法连接到数据库'}), 500
-    except Exception as e:
-        logging.error(f"获取历史记录失败: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/get-random-news', methods=['GET'])
-def get_random_news():
-    try:
-        connection = get_database_connection()
-        if connection:
-            cursor = connection.cursor(dictionary=True)
-            query = "SELECT title, content FROM cleaned_file ORDER BY RAND() LIMIT 4"
-            cursor.execute(query)
-            news_data = cursor.fetchall()
-            cursor.close()
-            connection.close()
-            return jsonify({'news': news_data})
-        else:
-            return jsonify({'error': 'Failed to connect to database'}), 500
-    except Exception as e:
-        logging.error(f"Error fetching random news: {e}")
-        return jsonify({'error': str(e)}), 500
+    return jsonify({'message': '当前未启用历史记录存储功能。'}), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
