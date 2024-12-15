@@ -280,6 +280,7 @@ button:hover{
     border-radius: 50%;
     animation: spin 1s linear infinite;
     background-color: #972c2c;
+    margin: auto;
 }
 
 @keyframes spin {
