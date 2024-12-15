@@ -24,23 +24,23 @@
     </header>
 
     <main>
-        <section class="trend">
+        <div class="trend">
             <div class="trend-intro">
                 <h3>News and Updates</h3>
                 <h2>看看大家都在查詢的假新聞</h2>
             </div>
             <div class="trend-fakenews">
-                <!-- 動態加載新聞內容 -->
+                <!-- 動態渲染每條假新聞 -->
                 {% for news in data %}
-                <div class="fakenews-item">
+                <div class="news">
                     <h4>{{ news.title }}</h4>
-                    <p>{{ news.content[:100] }}...</p> <!-- 顯示前100個字 -->
+                    <p>{{ news.content[:100] }}...</p>
                     <p><strong>分類:</strong> {{ news.classification }}</p>
-                    <hr> <!-- 添加分隔線 -->
                 </div>
                 {% endfor %}
             </div>
-        </section>
+        </div>
+
     </main>
 
     <footer>
