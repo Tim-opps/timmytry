@@ -161,19 +161,21 @@ document.addEventListener("DOMContentLoaded", function () {
     const trendContainer = document.querySelector(".trend-fakenews");
 
     // 讀取並解析 CSV 文件
-    fetch("datacombined_1.csv")
-        .then(response => response.text())
+    fetch("datacombine_1.csv")
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.text();
+        })
         .then(data => {
             const rows = data.split("\n").slice(1); // 去掉標題行
-            const newsData = rows.map(row => {
-                const [id, content, title, classification] = row.split(","); // 根據 CSV 格式解析
-                return {
-                    id: id.trim(),
-                    content: content.trim(),
-                    title: title.trim(),
-                    classification: classification.trim()
-                };
-            });
+            const newsData = rows
+                .filter(row => row.trim()) // 過濾空行
+                .map(row => {
+                    const [id, content, title, classification] = row.split(",").map(item => item.trim());
+                    return { id, content, title, classification };
+                });
 
             // 篩選 classification = 1 的資料
             const filteredNews = newsData.filter(news => news.classification === "1");
@@ -186,6 +188,11 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             // 將資料顯示在頁面上
+            if (randomNews.length === 0) {
+                trendContainer.innerHTML = "<p>沒有符合的假消息資料。</p>";
+                return;
+            }
+
             randomNews.forEach(news => {
                 const newsItem = document.createElement("div");
                 newsItem.classList.add("news-item");
@@ -201,7 +208,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 trendContainer.appendChild(newsItem);
             });
         })
-        .catch(error => console.error("Error loading CSV file:", error));
+        .catch(error => {
+            console.error("Error loading or processing CSV file:", error);
+            trendContainer.innerHTML = "<p>載入資料時發生錯誤，請稍後再試。</p>";
+        });
 });
 
 
