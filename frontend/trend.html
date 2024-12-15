@@ -34,8 +34,9 @@
                 {% for news in data %}
                 <div class="fakenews-item">
                     <h4>{{ news.title }}</h4>
-                    <p>{{ news.content[:100] }}...</p> <!-- 僅顯示前100個字 -->
+                    <p>{{ news.content[:100] }}...</p> <!-- 顯示前100個字 -->
                     <p><strong>分類:</strong> {{ news.classification }}</p>
+                    <hr> <!-- 添加分隔線 -->
                 </div>
                 {% endfor %}
             </div>
