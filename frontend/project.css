@@ -281,6 +281,7 @@ button:hover{
     animation: spin 1s linear infinite;
     background-color: #972c2c;
     margin: auto;
+    margin_top: 50vw;
 }
 
 @keyframes spin {
