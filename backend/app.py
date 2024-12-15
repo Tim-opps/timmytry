@@ -1,6 +1,7 @@
 import os
 import json
 import numpy as np
+import jieba
 import jieba.posseg as pseg
 from flask import Flask, request, jsonify
 from flask_cors import CORS
