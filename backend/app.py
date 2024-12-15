@@ -135,24 +135,33 @@ def predict_category(input_title, database_title):
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
+        logging.info("收到 /predict 请求")
         start_time = time.time()
         data = request.json
-        logging.info(f"收到的请求数据: {data}")
+        logging.info(f"请求数据: {data}")
+        
         input_title = data.get('title', '').strip()
-
         if not input_title:
             return jsonify({'error': '需要提供标题'}), 400
 
-        if len(input_title) < 3:
-            return jsonify({'error': '标题过短'}), 400
+        # 记录BM25匹配日志
+        best_doc_id, best_score = get_best_match_bm25(input_title)
+        logging.info(f"BM25 匹配结果: Doc ID={best_doc_id}, 分数={best_score}")
 
-        # 使用动态BM25计算获取最佳匹配
-        best_match, best_score = get_best_match_bm25(input_title)
+        if not best_doc_id:
+            return jsonify({'error': '没有找到相似数据'}), 404
+
+        # 查询数据库
+        best_match = get_database_record(best_doc_id)
+        logging.info(f"数据库查询结果: {best_match}")
+
         if not best_match:
-            return jsonify({'error': '没有找到足够相似的数据'}), 404
+            return jsonify({'error': '无法获取匹配数据'}), 500
 
-        # 使用 LSTM 模型进行预测
+        # 模型预测
         probabilities = predict_category(input_title, best_match["title"])
+        logging.info(f"模型预测结果: {probabilities}")
+
         category_index = np.argmax(probabilities)
         categories = ["無關", "同意", "不同意"]
         category = categories[category_index]
@@ -160,17 +169,36 @@ def predict():
         response = {
             'input_title': input_title,
             'matched_title': best_match["title"],
+            'matched_content': best_match["content"],
             'bm25_score': best_score,
             'category': category,
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
         }
 
+        # 保存历史记录
+        connection = get_database_connection()
+        if connection:
+            try:
+                cursor = connection.cursor()
+                query = """
+                    INSERT INTO history (query_text, result_title, bm25_score, result_category, created_at)
+                    VALUES (%s, %s, %s, %s, NOW())
+                """
+                cursor.execute(query, (input_title, best_match["title"], best_score, category))
+                connection.commit()
+                cursor.close()
+                logging.info("历史记录已保存")
+            except Exception as e:
+                logging.error(f"历史记录保存失败: {e}")
+            finally:
+                connection.close()
+
         logging.info(f"API 处理总时间: {time.time() - start_time:.4f} 秒")
         return jsonify(response)
-
     except Exception as e:
-        logging.error(f"发生错误: {e}")
+        logging.error(f"错误发生: {e}")
         return jsonify({'error': str(e)}), 500
+
 
 # API 路由：获取历史记录
 @app.route('/history', methods=['GET'])
