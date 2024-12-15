@@ -157,6 +157,9 @@ def predict_category(input_title, database_title):
 def predict():
     try:
         start_time = time.time()
+        logging.info("开始处理 /predict 请求")
+
+        # Step 1: 解析请求数据
         data = request.json
         logging.info(f"收到的请求数据: {data}")
         input_title = data.get('title', '').strip()
@@ -166,14 +169,25 @@ def predict():
 
         if len(input_title) < 3:
             return jsonify({'error': '标题过短'}), 400
+        step1_time = time.time()
+        logging.info(f"解析请求数据耗时: {step1_time - start_time:.4f} 秒")
 
-        # 数据库匹配
+        # Step 2: 数据库匹配
+        match_start_time = time.time()
         best_match, best_score = find_best_match(input_title)
         if not best_match:
             return jsonify({'error': '没有找到足够相似的数据'}), 404
+        match_end_time = time.time()
+        logging.info(f"数据库匹配耗时: {match_end_time - match_start_time:.4f} 秒")
 
-        # 使用 LSTM 模型进行预测
+        # Step 3: 使用 LSTM 模型进行预测
+        model_start_time = time.time()
         probabilities = predict_category(input_title, best_match["title"])
+        model_end_time = time.time()
+        logging.info(f"LSTM 模型预测耗时: {model_end_time - model_start_time:.4f} 秒")
+
+        # Step 4: 准备响应数据
+        response_start_time = time.time()
         category_index = np.argmax(probabilities)
         categories = ["無關", "同意", "不同意"]  # 中文分类
         category = categories[category_index]
@@ -186,8 +200,11 @@ def predict():
             'category': category,
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
         }
+        response_end_time = time.time()
+        logging.info(f"准备响应数据耗时: {response_end_time - response_start_time:.4f} 秒")
 
-        # 保存历史记录
+        # Step 5: 保存历史记录
+        history_start_time = time.time()
         connection = get_database_connection()
         if connection:
             try:
@@ -209,13 +226,18 @@ def predict():
                 logging.error(f"保存历史记录失败: {e}")
             finally:
                 connection.close()
+        history_end_time = time.time()
+        logging.info(f"保存历史记录耗时: {history_end_time - history_start_time:.4f} 秒")
 
-        logging.info(f"API 处理总时间: {time.time() - start_time:.4f} 秒")
+        # 总耗时记录
+        total_time = time.time() - start_time
+        logging.info(f"API 处理总时间: {total_time:.4f} 秒")
         return jsonify(response)
 
     except Exception as e:
         logging.error(f"发生错误: {e}")
         return jsonify({'error': str(e)}), 500
+
 
 # API 路由：获取历史记录
 @app.route('/history', methods=['GET'])
