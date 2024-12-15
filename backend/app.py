@@ -21,7 +21,6 @@ CORS(app)
 MAX_SEQUENCE_LENGTH = 20    # 模型输入的最大序列长度
 SIMILARITY_THRESHOLD = 0.5  # 数据库匹配的最低分数
 CSV_FILE = "datacombined_1_tokenized.csv"  # 分词后的 CSV 文件路径
-HISTORY_CSV = "history.csv"   # 历史记录 CSV 文件路径
 
 # 全局变量
 model = None
@@ -56,7 +55,7 @@ load_model_and_tokenizer()
 def load_csv_data():
     global data
     try:
-        data = pd.read_csv(CSV_FILE)
+        data = pd.read_csv(CSV_FILE, dtype={"title": "string", "content": "string"})
         logging.info(f"分词后的 CSV 文件已加载，共 {len(data)} 条记录。")
     except Exception as e:
         logging.error(f"加载 CSV 文件失败: {e}")
@@ -107,25 +106,6 @@ def predict_category(input_title, database_title):
     predictions = model.predict([input_processed, db_processed])
     return predictions
 
-# 保存历史记录到 CSV
-def save_history(input_title, matched_title, category, probabilities):
-    try:
-        history_data = {
-            "query_text": input_title,
-            "matched_title": matched_title,
-            "result_category": category,
-            "fake_probability": probabilities.get("不同意", 0),
-            "real_probability": probabilities.get("同意", 0),
-            "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        if not os.path.exists(HISTORY_CSV):
-            pd.DataFrame([history_data]).to_csv(HISTORY_CSV, index=False)
-        else:
-            pd.DataFrame([history_data]).to_csv(HISTORY_CSV, mode='a', header=False, index=False)
-        logging.info("历史记录已保存。")
-    except Exception as e:
-        logging.error(f"保存历史记录失败: {e}")
-
 # API 路由：预测
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -172,9 +152,6 @@ def predict():
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
         }
 
-        # 保存历史记录
-        save_history(input_title, best_match["title"], category, response['probabilities'])
-
         # 总耗时记录
         total_time = time.time() - start_time
         logging.info(f"API 处理总时间: {total_time:.4f} 秒")
@@ -183,29 +160,6 @@ def predict():
     except Exception as e:
         logging.error(f"发生错误: {e}")
         return jsonify({'error': str(e)}), 500
-
-# API 路由：获取历史记录
-@app.route('/history', methods=['GET'])
-def get_history():
-    try:
-        if not os.path.exists(HISTORY_CSV):
-            return jsonify({'history': []})
-
-        history_data = pd.read_csv(HISTORY_CSV).to_dict(orient='records')
-        return jsonify({'history': history_data})
-    except Exception as e:
-        logging.error(f"获取历史记录失败: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-from flask import Flask, render_template
-import pandas as pd
-
-app = Flask(
-    __name__,
-    template_folder="../frontend/templates",  # 指定 HTML 模板文件夾
-    static_folder="../frontend/static"        # 指定靜態資源文件夾
-)
 
 # 隨機抽取頁面路由
 @app.route('/random')
@@ -219,8 +173,6 @@ def random_page():
     # 渲染 random.html，並將數據傳遞給模板
     return render_template('trend.html', data=sampled_data)
 
-if __name__ == '__main__':
-    app.run(debug=True)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
