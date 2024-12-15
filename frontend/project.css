@@ -296,13 +296,11 @@ button:hover{
 /* detect end */
 
 /* trend start */
-.trend{
-    margin_top:80px;
-}
+
 
 .trend-intro{
     height: 180px;
-    
+    margin_top:120px;
     h3{
         font-size: 20pt;
         font-weight: 800;
