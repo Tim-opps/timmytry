@@ -160,25 +160,14 @@ document.getElementById('submit').addEventListener('click', (event) => {
 document.addEventListener("DOMContentLoaded", function () {
     const trendContainer = document.querySelector(".trend-fakenews");
 
-    // 讀取並解析 CSV 文件
-    fetch("datacombined_1.csv")
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return response.text();
-        })
+    // 使用 PapaParse 讀取並解析 CSV 文件
+    fetch("datacombined_1_processed.csv")
+        .then(response => response.text())
         .then(data => {
-            const rows = data.split("\n").slice(1); // 去掉標題行
-            const newsData = rows
-                .filter(row => row.trim()) // 過濾空行
-                .map(row => {
-                    const [id,titlecontent , , classification] = row.split(",").map(item => item.trim());
-                    return { id,titlecontent , , classification };
-                });
+            const parsedData = Papa.parse(data, { header: true }).data;
 
             // 篩選 classification = 1 的資料
-            const filteredNews = newsData.filter(news => news.classification === "1");
+            const filteredNews = parsedData.filter(news => news.classification === "1");
 
             // 隨機選取 4 筆資料
             const randomNews = [];
@@ -213,5 +202,3 @@ document.addEventListener("DOMContentLoaded", function () {
             trendContainer.innerHTML = "<p>載入資料時發生錯誤，請稍後再試。</p>";
         });
 });
-
-
