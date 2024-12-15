@@ -161,7 +161,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const trendContainer = document.querySelector(".trend-fakenews");
 
     // 讀取並解析 CSV 文件
-    fetch("datacombine_1.csv")
+    fetch("datacombined_1.csv")
         .then(response => response.text())
         .then(data => {
             const rows = data.split("\n").slice(1); // 去掉標題行
