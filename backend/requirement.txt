@@ -2,8 +2,5 @@ numpy
 tensorflow
 jieba
 flask 
-torch 
 transformers
 flask-cors
-scikit-learn
-gunicorn
