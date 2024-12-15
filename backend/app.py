@@ -24,7 +24,7 @@ MAX_SEQUENCE_LENGTH = 20    # 模型输入的最大序列长度
 
 # 数据库连接配置
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "35.185.148.251"),
+    "host": os.getenv("DB_HOST", "34.67.248.245"),
     "user": os.getenv("DB_USER", "tps"),
     "password": os.getenv("DB_PASSWORD", "0423"),
     "database": os.getenv("DB_NAME", "fake_news_db")
