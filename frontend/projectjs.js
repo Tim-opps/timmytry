@@ -1,4 +1,4 @@
-// 初始化：監聽提交按鈕點擊事件
+// 監聽提交按鈕點擊事件
 document.getElementById('submit-btn').addEventListener('click', async function () {
     const inputText = document.getElementById('inputtext').value.trim();
 
@@ -14,7 +14,7 @@ document.getElementById('submit-btn').addEventListener('click', async function (
 
     try {
         // 向後端發送請求
-        const response = await fetch('https://timmytry.onrender.com/predict', {
+        const response = await fetch('/predict', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -53,13 +53,21 @@ function updateResult(data) {
     const resultText = document.getElementById('result-text');
     const resultTimestamp = document.getElementById('result-timestamp');
 
+    // 準備資料
+    const fakeProbability = data.probabilities && data.probabilities["不同意"] !== undefined 
+        ? (data.probabilities["不同意"] * 100).toFixed(2) : '0.00';
+    const realProbability = data.probabilities && data.probabilities["同意"] !== undefined 
+        ? (data.probabilities["同意"] * 100).toFixed(2) : '0.00';
+    const matchScore = data.match_score ? (data.match_score * 100).toFixed(2) : '0.00';
+
     // 更新結果內容
     resultText.innerHTML = `
-        <strong>分析結果：</strong> ${data.category === 'fake' ? '假消息' : '真消息'}<br>
-        <strong>假消息機率：</strong> ${(data.probabilities.fake * 100).toFixed(2)}%<br>
-        <strong>真消息機率：</strong> ${(data.probabilities.real * 100).toFixed(2)}%<br>
+        <strong>分析結果：</strong> ${data.category || '未知'}<br>
+        <strong>假消息機率：</strong> ${fakeProbability}%<br>
+        <strong>真消息機率：</strong> ${realProbability}%<br>
         <strong>相關標題：</strong> ${data.matched_title || '無匹配標題'}<br>
-        <strong>內容摘要：</strong> ${data.database_entry?.content || '無匹配內容'}
+        <strong>內容摘要：</strong> ${data.matched_content || '無匹配內容'}<br>
+        <strong>匹配分數：</strong> ${matchScore}%<br>
     `;
 
     // 顯示查詢時間戳
@@ -116,52 +124,12 @@ function resetResult() {
 // 監聽重置按鈕點擊事件
 document.querySelector('button[type="reset"]').addEventListener('click', resetResult);
 
-
-
-document.getElementById('submit').addEventListener('click', (event) => {
-    // 防止表單預設的提交行為（刷新頁面）
-    event.preventDefault();
-
-    // 獲取輸入的文字內容
-    const inputText = document.getElementById('inputtext').value.trim();
-
-    // 檢查輸入是否為空
-    if (!inputText) {
-        alert("請輸入有疑慮的假消息！");
-        return;
-    }
-
-    // 發送到後端的API進行處理
-    fetch('/predict', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ title: inputText }) // 傳遞輸入內容到後端
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            // 顯示錯誤信息
-            alert(`錯誤：${data.error}`);
-        } else {
-            // 在這裡處理成功的回應結果
-            console.log("預測結果：", data);
-            alert(`結果：分類為 "${data.category}"\n相似標題：${data.matched_title}`);
-        }
-    })
-    .catch(error => {
-        console.error('發生錯誤:', error);
-        alert("發送請求時發生錯誤，請稍後再試！");
-    });
-});
-
-
+// 隨機抽取頁面內容
 document.addEventListener("DOMContentLoaded", function () {
     const trendContainer = document.querySelector(".trend-fakenews");
 
     // 使用 PapaParse 讀取並解析 CSV 文件
-    fetch("datacombined_1_processed.csv")
+    fetch("datacombined_1_tokenized.csv")
         .then(response => response.text())
         .then(data => {
             const parsedData = Papa.parse(data, { header: true }).data;
@@ -187,10 +155,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 newsItem.classList.add("news-item");
 
                 const title = document.createElement("h6");
-                title.textContent = news.title;
+                title.textContent = news.tokenized_title;
 
                 const content = document.createElement("p");
-                content.textContent = news.content;
+                content.textContent = news.tokenized_content;
 
                 newsItem.appendChild(title);
                 newsItem.appendChild(content);
