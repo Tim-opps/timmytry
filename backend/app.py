@@ -8,6 +8,9 @@ import logging
 import time
 import keras as kr
 import tensorflow as tf
+import jieba
+import jieba.posseg as pseg  # 確保這裡導入正確
+
 
 # 初始化日志记录
 logging.basicConfig(level=logging.INFO)
