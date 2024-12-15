@@ -279,8 +279,8 @@ button:hover{
         border-top: 5px solid #fbaf59;
         border-radius: 50%;
         animation: spin 1s linear infinite;
-        background-color: #972c2c;
-        margin: auto;
+        justify-content: center;
+    align-items: center;
 
 }
 
