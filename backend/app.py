@@ -13,12 +13,12 @@ import tensorflow as tf
 logging.basicConfig(level=logging.INFO)
 
 # 初始化 Flask 应用
-app = Flask( __name__)
+app = Flask(__name__)
 CORS(app)
 
 # 全局参数
 MAX_SEQUENCE_LENGTH = 20    # 模型输入的最大序列长度
-SIMILARITY_THRESHOLD = 0.5  # 匹配的最低分数
+SIMILARITY_THRESHOLD = 0.5  # 数据库匹配的最低分数
 CSV_FILE = "datacombined_1_tokenized.csv"  # 分词后的 CSV 文件路径
 
 # 全局变量
@@ -54,7 +54,7 @@ load_model_and_tokenizer()
 def load_csv_data():
     global data
     try:
-        data = pd.read_csv(CSV_FILE, dtype={"title": "string", "content": "string"})
+        data = pd.read_csv(CSV_FILE, dtype={"tokenized_title": "string", "tokenized_content": "string"})
         logging.info(f"分词后的 CSV 文件已加载，共 {len(data)} 条记录。")
     except Exception as e:
         logging.error(f"加载 CSV 文件失败: {e}")
@@ -66,11 +66,13 @@ def find_best_match(input_text):
     best_match = None
     best_score = 0
 
+    # 假设输入已分词，直接按空格分割
+    input_tokens = set(input_text.split())
+
     for _, row in data.iterrows():
-        title_tokens = row['title'].split()
-        content_tokens = row['content'].split()
-        combined_text = set(title_tokens + content_tokens)
-        input_tokens = set(input_text.split())  # 假设输入已分词
+        title_tokens = set(row['tokenized_title'].split())
+        content_tokens = set(row['tokenized_content'].split())
+        combined_text = title_tokens | content_tokens
 
         # 简单匹配分数计算
         common_tokens = input_tokens & combined_text
@@ -86,8 +88,8 @@ def find_best_match(input_text):
 def preprocess_texts(title):
     if tokenizer is None:
         raise ValueError("分词器尚未加载。")
-    title_tokenized = title.split()  # 假设输入已分词
-    x_test = tokenizer.texts_to_sequences([" ".join(title_tokenized)])
+    # 假设输入已经分词好，直接用空格分割
+    x_test = tokenizer.texts_to_sequences([title])
     x_test = kr.preprocessing.sequence.pad_sequences(x_test, maxlen=MAX_SEQUENCE_LENGTH)
     return x_test
 
@@ -108,9 +110,9 @@ def predict():
         logging.info("开始处理 /predict 请求")
 
         # Step 1: 解析请求数据
-        request_data = request.json
-        logging.info(f"收到的请求数据: {request_data}")
-        input_title = request_data.get('title', '').strip()
+        data = request.json
+        logging.info(f"收到的请求数据: {data}")
+        input_title = data.get('title', '').strip()
 
         if not input_title:
             return jsonify({'error': '需要提供标题'}), 400
@@ -128,7 +130,7 @@ def predict():
 
         # Step 3: 使用 LSTM 模型进行预测
         model_start_time = time.time()
-        probabilities = predict_category(input_title, best_match["title"])
+        probabilities = predict_category(input_title, best_match["tokenized_title"])
         model_end_time = time.time()
         logging.info(f"LSTM 模型预测耗时: {model_end_time - model_start_time:.4f} 秒")
 
@@ -139,8 +141,8 @@ def predict():
 
         response = {
             'input_title': input_title,
-            'matched_title': best_match["title"],
-            'matched_content': best_match["content"],
+            'matched_title': best_match["tokenized_title"],
+            'matched_content': best_match["tokenized_content"],
             'match_score': best_score,
             'category': category,
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
@@ -154,6 +156,7 @@ def predict():
     except Exception as e:
         logging.error(f"发生错误: {e}")
         return jsonify({'error': str(e)}), 500
+
 
 # 随机抽取页面路由
 @app.route('/random')
