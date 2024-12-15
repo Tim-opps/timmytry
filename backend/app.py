@@ -19,6 +19,7 @@ CORS(app)
 
 # 全局参数
 MAX_SEQUENCE_LENGTH = 20    # 模型输入的最大序列长度
+SIMILARITY_THRESHOLD = 0.5  # 数据库匹配的最低分数
 
 # 数据库连接配置
 DB_CONFIG = {
@@ -28,15 +29,12 @@ DB_CONFIG = {
     "database": os.getenv("DB_NAME", "fake_news_db")
 }
 
-# 模型及分词器路径
-MODEL_PATH = os.getenv("MODEL_PATH", "FNCwithLSTM.h5")
-WORD_INDEX_PATH = os.getenv("WORD_INDEX_PATH", "word_index.json")
-
 # 全局变量
 model = None
 tokenizer = None
 
-# 数据库连接池
+# 数据库连接
+
 def get_database_connection():
     try:
         connection = mysql.connector.connect(**DB_CONFIG)
@@ -46,18 +44,47 @@ def get_database_connection():
         logging.error(f"数据库连接失败: {err}")
         return None
 
+# 创建 history 表（如果不存在）
+def create_history_table():
+    connection = get_database_connection()
+    if connection:
+        try:
+            cursor = connection.cursor()
+            query = """
+                CREATE TABLE IF NOT EXISTS history (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    query_text TEXT NOT NULL,
+                    matched_title TEXT,
+                    result_category VARCHAR(50),
+                    fake_probability FLOAT,
+                    real_probability FLOAT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """
+            cursor.execute(query)
+            connection.commit()
+            logging.info("history 表已创建。")
+        except Exception as e:
+            logging.error(f"创建 history 表失败: {e}")
+        finally:
+            connection.close()
+
+create_history_table()
+
 # 加载 LSTM 模型和分词器
 def load_model_and_tokenizer():
     global model, tokenizer
     try:
         start_time = time.time()
+        model_path = os.getenv("MODEL_PATH", "FNCwithLSTM.h5")
+        word_index_path = os.getenv("WORD_INDEX_PATH", "word_index.json")
 
         # 加载模型
-        model = kr.models.load_model(MODEL_PATH)
+        model = kr.models.load_model(model_path)
         logging.info(f"LSTM 模型加载成功，耗时: {time.time() - start_time:.4f} 秒")
 
         # 加载分词器
-        with open(WORD_INDEX_PATH, 'r', encoding='utf-8') as f:
+        with open(word_index_path, 'r', encoding='utf-8') as f:
             word_index = json.load(f)
         tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=10000)
         tokenizer.word_index = word_index
@@ -66,16 +93,53 @@ def load_model_and_tokenizer():
     except Exception as e:
         logging.error(f"加载 LSTM 模型或分词器失败: {e}")
 
-# 初始化模型和分词器
 load_model_and_tokenizer()
+
+# 分词函数
+def jieba_tokenizer(text):
+    words = pseg.cut(text)
+    return [word for word, flag in words if flag != 'x']  # 返回分词后的列表
+
+# 数据库匹配函数
+def find_best_match(input_text):
+    connection = get_database_connection()
+    if not connection:
+        raise RuntimeError("无法连接到数据库。")
+
+    try:
+        cursor = connection.cursor(dictionary=True)
+        query = "SELECT id, title, content FROM cleaned_file"
+        cursor.execute(query)
+        records = cursor.fetchall()
+
+        best_match = None
+        best_score = 0
+
+        for record in records:
+            title_tokens = jieba_tokenizer(record['title'])
+            content_tokens = jieba_tokenizer(record['content'])
+            combined_text = " ".join(title_tokens + content_tokens)
+            input_tokens = " ".join(jieba_tokenizer(input_text))
+
+            # 简单匹配分数计算
+            common_tokens = set(input_tokens.split()) & set(combined_text.split())
+            score = len(common_tokens) / len(set(input_tokens.split()))
+
+            if score > best_score and score >= SIMILARITY_THRESHOLD:
+                best_score = score
+                best_match = record
+
+        return best_match, best_score
+
+    finally:
+        connection.close()
 
 # 文本预处理
 def preprocess_texts(title):
     if tokenizer is None:
         raise ValueError("分词器尚未加载。")
-    words = [word for word, flag in pseg.cut(title) if flag != 'x']
-    title_tokenized = " ".join(words)
-    x_test = tokenizer.texts_to_sequences([title_tokenized])
+    title_tokenized = jieba_tokenizer(title)
+    x_test = tokenizer.texts_to_sequences([" ".join(title_tokenized)])
     x_test = kr.preprocessing.sequence.pad_sequences(x_test, maxlen=MAX_SEQUENCE_LENGTH)
     return x_test
 
@@ -103,26 +167,9 @@ def predict():
         if len(input_title) < 3:
             return jsonify({'error': '标题过短'}), 400
 
-        # 查询数据库中的所有标题
-        connection = get_database_connection()
-        cursor = connection.cursor(dictionary=True)
-        cursor.execute("SELECT id, title FROM cleaned_file")
-        rows = cursor.fetchall()
-        cursor.close()
-        connection.close()
-
-        # 找到最佳匹配项
-        best_match = None
-        best_similarity = 0
-
-        for row in rows:
-            db_title = row['title']
-            similarity = np.random.rand()  # 模拟计算相似度逻辑
-            if similarity > best_similarity:
-                best_similarity = similarity
-                best_match = row
-
-        if best_match is None or best_similarity < 0.5:
+        # 数据库匹配
+        best_match, best_score = find_best_match(input_title)
+        if not best_match:
             return jsonify({'error': '没有找到足够相似的数据'}), 404
 
         # 使用 LSTM 模型进行预测
@@ -134,6 +181,8 @@ def predict():
         response = {
             'input_title': input_title,
             'matched_title': best_match["title"],
+            'matched_content': best_match["content"],
+            'match_score': best_score,
             'category': category,
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
         }
@@ -144,12 +193,17 @@ def predict():
             try:
                 cursor = connection.cursor()
                 query = """
-                    INSERT INTO history (query_text, result_title, result_category, created_at)
-                    VALUES (%s, %s, %s, NOW())
+                    INSERT INTO history (query_text, matched_title, result_category, fake_probability, real_probability)
+                    VALUES (%s, %s, %s, %s, %s)
                 """
-                cursor.execute(query, (input_title, best_match["title"], category))
+                cursor.execute(query, (
+                    input_title,
+                    best_match["title"],
+                    category,
+                    response['probabilities'].get("不同意", 0),
+                    response['probabilities'].get("同意", 0)
+                ))
                 connection.commit()
-                cursor.close()
                 logging.info("历史记录已保存。")
             except Exception as e:
                 logging.error(f"保存历史记录失败: {e}")
@@ -171,7 +225,7 @@ def get_history():
         if connection:
             cursor = connection.cursor(dictionary=True)
             query = """
-                SELECT id, query_text, result_title, result_category, created_at
+                SELECT id, query_text, matched_title, result_category, fake_probability, real_probability, created_at
                 FROM history
                 ORDER BY created_at DESC
                 LIMIT 20
@@ -187,9 +241,6 @@ def get_history():
         logging.error(f"获取历史记录失败: {e}")
         return jsonify({'error': str(e)}), 500
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
 
 @app.route('/get-random-news', methods=['GET'])
 def get_random_news():
@@ -208,3 +259,7 @@ def get_random_news():
     except Exception as e:
         logging.error(f"Error fetching random news: {e}")
         return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
