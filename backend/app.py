@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pandas as pd
 import jieba.posseg as pseg
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify,render_template
 from flask_cors import CORS
 import logging
 import time
@@ -198,16 +198,29 @@ def get_history():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/')
-def index():
+from flask import Flask, render_template
+import pandas as pd
+
+app = Flask(
+    __name__,
+    template_folder="../frontend/templates",  # 指定 HTML 模板文件夾
+    static_folder="../frontend/static"        # 指定靜態資源文件夾
+)
+
+# 隨機抽取頁面路由
+@app.route('/random')
+def random_page():
     # 讀取 CSV 文件
     data = pd.read_csv('datacombined_1.csv')
-    
-    # 隨機抽取4筆數據
+
+    # 隨機抽取 4 筆資料
     sampled_data = data.sample(n=4).to_dict(orient='records')
-    
-    # 將抽取的數據傳遞到模板
-    return render_template('trend.html', data=sampled_data)
+
+    # 渲染 random.html，並將數據傳遞給模板
+    return render_template('random.html', data=sampled_data)
+
+if __name__ == '__main__':
+    app.run(debug=True)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
