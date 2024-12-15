@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 
 # 初始化 Flask 应用
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # 全局参数
 SIMILARITY_THRESHOLD = 1.2  # BM25 相似度阈值
@@ -222,6 +222,32 @@ def get_history():
             return jsonify({'error': '无法连接到数据库'}), 500
     except Exception as e:
         logging.error(f"获取历史记录失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/get-random-news', methods=['GET'])
+def get_random_news():
+    try:
+        # 建立資料庫連線
+        connection = get_database_connection()
+        if not connection:
+            return jsonify({'error': '無法連線到資料庫'}), 500
+        
+        # 隨機選取 4 筆資料
+        cursor = connection.cursor(dictionary=True)
+        query = "SELECT title, content FROM cleaned_file ORDER BY RAND() LIMIT 4"
+        cursor.execute(query)
+        news_data = cursor.fetchall()
+
+        # 關閉連線
+        cursor.close()
+        connection.close()
+
+        # 返回 JSON 結果
+        return jsonify({'news': news_data}), 200
+
+    except Exception as e:
+        logging.error(f"取得隨機新聞時發生錯誤: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
