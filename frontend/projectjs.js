@@ -157,42 +157,51 @@ document.getElementById('submit').addEventListener('click', (event) => {
 });
 
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", function () {
     const trendContainer = document.querySelector(".trend-fakenews");
 
-    // 獲取隨機新聞
-    async function fetchRandomNews() {
-        try {
-            const response = await fetch('http://127.0.0.1:5000/api/random-news');
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
+    // 讀取並解析 CSV 文件
+    fetch("datacombine_1.csv")
+        .then(response => response.text())
+        .then(data => {
+            const rows = data.split("\n").slice(1); // 去掉標題行
+            const newsData = rows.map(row => {
+                const [id, content, title, classification] = row.split(","); // 根據 CSV 格式解析
+                return {
+                    id: id.trim(),
+                    content: content.trim(),
+                    title: title.trim(),
+                    classification: classification.trim()
+                };
+            });
+
+            // 篩選 classification = 1 的資料
+            const filteredNews = newsData.filter(news => news.classification === "1");
+
+            // 隨機選取 4 筆資料
+            const randomNews = [];
+            while (randomNews.length < 4 && filteredNews.length > 0) {
+                const index = Math.floor(Math.random() * filteredNews.length);
+                randomNews.push(filteredNews.splice(index, 1)[0]);
             }
-            const newsData = await response.json();
-            
-            // 清空容器
-            trendContainer.innerHTML = '';
 
-            // 動態添加新聞數據
-            newsData.forEach(news => {
-                const newsItem = document.createElement('div');
-                newsItem.classList.add('news-item');
+            // 將資料顯示在頁面上
+            randomNews.forEach(news => {
+                const newsItem = document.createElement("div");
+                newsItem.classList.add("news-item");
 
-                const title = document.createElement('h6');
-                title.textContent = news.Title;
+                const title = document.createElement("h6");
+                title.textContent = news.title;
 
-                const content = document.createElement('p');
-                content.textContent = news.Content;
+                const content = document.createElement("p");
+                content.textContent = news.content;
 
                 newsItem.appendChild(title);
                 newsItem.appendChild(content);
                 trendContainer.appendChild(newsItem);
             });
-        } catch (error) {
-            console.error('Failed to fetch news:', error);
-        }
-    }
-
-    // 加載新聞
-    fetchRandomNews();
+        })
+        .catch(error => console.error("Error loading CSV file:", error));
 });
+
 
