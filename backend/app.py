@@ -108,7 +108,7 @@ def find_best_match(input_text):
 
     try:
         cursor = connection.cursor(dictionary=True)
-        query = "SELECT id, title, content FROM cleaned_file"
+        query = "SELECT id, title, content FROM cleaned_file LIMIT 200 ;"
         cursor.execute(query)
         records = cursor.fetchall()
 
