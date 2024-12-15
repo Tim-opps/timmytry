@@ -18,7 +18,7 @@ CORS(app)
 
 # 全局参数
 MAX_SEQUENCE_LENGTH = 20    # 模型输入的最大序列长度
-SIMILARITY_THRESHOLD = 0.5  # 数据库匹配的最低分数
+SIMILARITY_THRESHOLD = 0.2  # 数据库匹配的最低分数
 CSV_FILE = "datacombined_1_tokenized.csv"  # 分词后的 CSV 文件路径
 
 # 全局变量
