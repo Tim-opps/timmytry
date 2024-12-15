@@ -2,7 +2,6 @@ import os
 import json
 import numpy as np
 import pandas as pd
-import jieba.posseg as pseg
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import logging
@@ -14,12 +13,12 @@ import tensorflow as tf
 logging.basicConfig(level=logging.INFO)
 
 # 初始化 Flask 应用
-app = Flask(__name__)
+app = Flask( __name__)
 CORS(app)
 
 # 全局参数
 MAX_SEQUENCE_LENGTH = 20    # 模型输入的最大序列长度
-SIMILARITY_THRESHOLD = 0.5  # 数据库匹配的最低分数
+SIMILARITY_THRESHOLD = 0.5  # 匹配的最低分数
 CSV_FILE = "datacombined_1_tokenized.csv"  # 分词后的 CSV 文件路径
 
 # 全局变量
@@ -56,38 +55,26 @@ def load_csv_data():
     global data
     try:
         data = pd.read_csv(CSV_FILE, dtype={"title": "string", "content": "string"})
-
-        # 检查 title 和 content 是否存在
-        if 'title' not in data.columns or 'content' not in data.columns:
-            raise ValueError("CSV 文件中缺少 'title' 或 'content' 列")
-
-        # 生成 combined_text 列
-        data['combined_text'] = data.apply(
-            lambda row: set(row['title'].split() + row['content'].split()), axis=1
-        )
         logging.info(f"分词后的 CSV 文件已加载，共 {len(data)} 条记录。")
     except Exception as e:
         logging.error(f"加载 CSV 文件失败: {e}")
 
 load_csv_data()
 
-# 分词函数
-def jieba_tokenizer(text):
-    words = pseg.cut(text)
-    return set([word for word, flag in words if flag != 'x'])  # 返回分词后的集合
-
 # CSV 匹配函数
 def find_best_match(input_text):
-    input_tokens = jieba_tokenizer(input_text)
     best_match = None
     best_score = 0
 
     for _, row in data.iterrows():
-        combined_text = row['combined_text']
+        title_tokens = row['title'].split()
+        content_tokens = row['content'].split()
+        combined_text = set(title_tokens + content_tokens)
+        input_tokens = set(input_text.split())  # 假设输入已分词
 
         # 简单匹配分数计算
         common_tokens = input_tokens & combined_text
-        score = len(common_tokens) / len(input_tokens) if len(input_tokens) > 0 else 0
+        score = len(common_tokens) / len(input_tokens)
 
         if score > best_score and score >= SIMILARITY_THRESHOLD:
             best_score = score
@@ -99,7 +86,7 @@ def find_best_match(input_text):
 def preprocess_texts(title):
     if tokenizer is None:
         raise ValueError("分词器尚未加载。")
-    title_tokenized = jieba_tokenizer(title)
+    title_tokenized = title.split()  # 假设输入已分词
     x_test = tokenizer.texts_to_sequences([" ".join(title_tokenized)])
     x_test = kr.preprocessing.sequence.pad_sequences(x_test, maxlen=MAX_SEQUENCE_LENGTH)
     return x_test
@@ -141,7 +128,7 @@ def predict():
 
         # Step 3: 使用 LSTM 模型进行预测
         model_start_time = time.time()
-        probabilities = predict_category(input_title, best_match['title'])
+        probabilities = predict_category(input_title, best_match["title"])
         model_end_time = time.time()
         logging.info(f"LSTM 模型预测耗时: {model_end_time - model_start_time:.4f} 秒")
 
@@ -152,8 +139,8 @@ def predict():
 
         response = {
             'input_title': input_title,
-            'matched_title': best_match['title'],
-            'matched_content': best_match['content'],
+            'matched_title': best_match["title"],
+            'matched_content': best_match["content"],
             'match_score': best_score,
             'category': category,
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
@@ -175,7 +162,7 @@ def random_page():
         sampled_data = data.sample(n=4).to_dict(orient='records')
         return render_template('trend.html', data=sampled_data)
     except Exception as e:
-        logging.error(f"随机页面加载失败: {e}")
+        logging.error(f"随机抽取页面失败: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
