@@ -74,28 +74,19 @@ def find_best_match(input_text):
     best_match = None
     best_score = 0
 
-    # 對輸入文本進行分詞
-    input_tokens = set(jieba_tokenizer(input_text))  # 新增：對輸入進行分詞
-    logging.info(f"Input Tokens: {input_tokens}")  # 新增日誌
-
     for _, row in data.iterrows():
-        # 提取已分詞的標題和內容
-        title_tokens = set(row['tokenized_title'].split())
-        content_tokens = set(row['tokenized_content'].split())
-        combined_text = title_tokens | content_tokens
+        title_tokens = row['tokenized_title'].split()
+        content_tokens = row['tokenized_content'].split()
+        combined_text = set(title_tokens + content_tokens)
+        input_tokens = set(jieba_tokenizer(input_text))
 
-        # 簡單匹配分數計算
+        # 計算匹配分數
         common_tokens = input_tokens & combined_text
         score = len(common_tokens) / len(input_tokens)
-
-        logging.info(f"Checking record ID {row['id']}: Score = {score}")  # 新增日誌
 
         if score > best_score and score >= SIMILARITY_THRESHOLD:
             best_score = score
             best_match = row
-
-    if best_match is None:
-        logging.warning("No match found for the input.")  # 新增日誌
 
     return best_match, best_score
 
@@ -125,48 +116,39 @@ def predict():
         start_time = time.time()
         logging.info("開始處理 /predict 請求")
 
-        # Step 1: 解析請求數據
-        data = request.json
-        logging.info(f"收到的請求數據: {data}")
-        input_title = data.get('title', '').strip()
+        # 解析請求數據
+        data_request = request.json
+        input_title = data_request.get('title', '').strip()
 
-        if not input_title:
-            return jsonify({'error': '需要提供標題'}), 400
+        if not input_title or len(input_title) < 3:
+            return jsonify({'error': '請提供有效的標題'}), 400
 
-        if len(input_title) < 3:
-            return jsonify({'error': '標題過短'}), 400
-
-        # Step 2: CSV 匹配（新增：分詞處理）
-        match_start_time = time.time()
-        best_match, best_score = find_best_match(input_title)  # find_best_match 函數內已對輸入分詞
+        # 匹配 CSV 數據
+        best_match, best_score = find_best_match(input_title)
         if best_match is None:
-            return jsonify({'error': '沒有找到足夠相似的數據'}), 404
-        match_end_time = time.time()
-        logging.info(f"CSV 匹配耗時: {match_end_time - match_start_time:.4f} 秒")
+            return jsonify({'error': '未找到匹配數據'}), 404
 
-        # Step 3: 使用 LSTM 模型進行預測
-        model_start_time = time.time()
-        probabilities = predict_category(input_title, best_match["tokenized_title"])  # 使用分詞後的標題
-        model_end_time = time.time()
-        logging.info(f"LSTM 模型預測耗時: {model_end_time - model_start_time:.4f} 秒")
+        # 獲取匹配結果的 classification
+        classification = int(best_match["classification"])
 
-        # Step 4: 準備響應數據
+        # 使用 LSTM 模型進行預測
+        probabilities = predict_category(input_title, best_match["tokenized_title"])
         category_index = np.argmax(probabilities)
-        categories = ["無關", "同意", "不同意"]  # 中文分類
+        categories = ["無關", "同意", "不同意"]
         category = categories[category_index]
 
+        # 構建響應
         response = {
             'input_title': input_title,
             'matched_title': best_match["tokenized_title"],
             'matched_content': best_match["tokenized_content"],
             'match_score': best_score,
             'category': category,
+            'classification': "假消息" if classification == 1 else "真消息",
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
         }
 
-        # 總耗時記錄
-        total_time = time.time() - start_time
-        logging.info(f"API 處理總時間: {total_time:.4f} 秒")
+        logging.info(f"API 處理總時間: {time.time() - start_time:.4f} 秒")
         return jsonify(response)
 
     except Exception as e:
