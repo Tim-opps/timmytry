@@ -157,41 +157,42 @@ document.getElementById('submit').addEventListener('click', (event) => {
 });
 
 
-async function loadRandomNews() {
-    try {
-        // 向後端發送請求獲取隨機新聞
-        const response = await fetch('/get-random-news');
-        if (!response.ok) {
-            throw new Error(`伺服器錯誤: ${response.statusText}`);
+document.addEventListener("DOMContentLoaded", () => {
+    const trendContainer = document.querySelector(".trend-fakenews");
+
+    // 獲取隨機新聞
+    async function fetchRandomNews() {
+        try {
+            const response = await fetch('http://127.0.0.1:5000/api/random-news');
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            const newsData = await response.json();
+            
+            // 清空容器
+            trendContainer.innerHTML = '';
+
+            // 動態添加新聞數據
+            newsData.forEach(news => {
+                const newsItem = document.createElement('div');
+                newsItem.classList.add('news-item');
+
+                const title = document.createElement('h6');
+                title.textContent = news.Title;
+
+                const content = document.createElement('p');
+                content.textContent = news.Content;
+
+                newsItem.appendChild(title);
+                newsItem.appendChild(content);
+                trendContainer.appendChild(newsItem);
+            });
+        } catch (error) {
+            console.error('Failed to fetch news:', error);
         }
-
-        // 解析數據
-        const data = await response.json();
-        if (data.error) {
-            console.error("後端錯誤：", data.error);
-            return;
-        }
-
-        // 動態更新 HTML
-        const trendFakeNews = document.querySelector('.trend-fakenews');
-        trendFakeNews.innerHTML = ''; // 清空現有內容
-
-        data.news.forEach(news => {
-            const newsHTML = `
-                <div class="news">
-                    <a href="#" class="article">
-                        <h4>${news.title}</h4>
-                        <p>${news.content}</p>
-                    </a>
-                </div>
-            `;
-            trendFakeNews.insertAdjacentHTML('beforeend', newsHTML);
-        });
-    } catch (error) {
-        console.error("加載新聞時發生錯誤：", error.message);
     }
-}
 
-// 在頁面加載後自動執行
-document.addEventListener('DOMContentLoaded', loadRandomNews);
+    // 加載新聞
+    fetchRandomNews();
+});
 
