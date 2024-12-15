@@ -257,6 +257,7 @@ button:hover{
     height: 180px;
     
     h3{
+        margin_top: 70px;
         font-size: 20pt;
         font-weight: 800;
         color: #fbaf59;
