@@ -161,7 +161,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const trendContainer = document.querySelector(".trend-fakenews");
 
     // 讀取並解析 CSV 文件
-    fetch("datacombine_1.csv")
+    fetch("datacombined_1.csv")
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
