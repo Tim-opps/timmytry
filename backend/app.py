@@ -61,26 +61,38 @@ def load_csv_data():
 
 load_csv_data()
 
-# CSV 匹配函数
+# 分詞函數
+def jieba_tokenizer(text):
+    words = pseg.cut(text)
+    return [word for word, flag in words if flag != 'x']  # 返回分詞後的列表
+
+# CSV 匹配函數（更新：對輸入文本進行分詞）
 def find_best_match(input_text):
     best_match = None
     best_score = 0
 
-    # 假设输入已分词，直接按空格分割
-    input_tokens = set(input_text.split())
+    # 對輸入文本進行分詞
+    input_tokens = set(jieba_tokenizer(input_text))  # 新增：對輸入進行分詞
+    logging.info(f"Input Tokens: {input_tokens}")  # 新增日誌
 
     for _, row in data.iterrows():
+        # 提取已分詞的標題和內容
         title_tokens = set(row['tokenized_title'].split())
         content_tokens = set(row['tokenized_content'].split())
         combined_text = title_tokens | content_tokens
 
-        # 简单匹配分数计算
+        # 簡單匹配分數計算
         common_tokens = input_tokens & combined_text
         score = len(common_tokens) / len(input_tokens)
+
+        logging.info(f"Checking record ID {row['id']}: Score = {score}")  # 新增日誌
 
         if score > best_score and score >= SIMILARITY_THRESHOLD:
             best_score = score
             best_match = row
+
+    if best_match is None:
+        logging.warning("No match found for the input.")  # 新增日誌
 
     return best_match, best_score
 
@@ -103,40 +115,41 @@ def predict_category(input_title, database_title):
     return predictions
 
 # API 路由：预测
+# API 路由：預測
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
         start_time = time.time()
-        logging.info("开始处理 /predict 请求")
+        logging.info("開始處理 /predict 請求")
 
-        # Step 1: 解析请求数据
+        # Step 1: 解析請求數據
         data = request.json
-        logging.info(f"收到的请求数据: {data}")
+        logging.info(f"收到的請求數據: {data}")
         input_title = data.get('title', '').strip()
 
         if not input_title:
-            return jsonify({'error': '需要提供标题'}), 400
+            return jsonify({'error': '需要提供標題'}), 400
 
         if len(input_title) < 3:
-            return jsonify({'error': '标题过短'}), 400
+            return jsonify({'error': '標題過短'}), 400
 
-        # Step 2: CSV 匹配
+        # Step 2: CSV 匹配（新增：分詞處理）
         match_start_time = time.time()
-        best_match, best_score = find_best_match(input_title)
+        best_match, best_score = find_best_match(input_title)  # find_best_match 函數內已對輸入分詞
         if best_match is None:
-            return jsonify({'error': '没有找到足够相似的数据'}), 404
+            return jsonify({'error': '沒有找到足夠相似的數據'}), 404
         match_end_time = time.time()
-        logging.info(f"CSV 匹配耗时: {match_end_time - match_start_time:.4f} 秒")
+        logging.info(f"CSV 匹配耗時: {match_end_time - match_start_time:.4f} 秒")
 
-        # Step 3: 使用 LSTM 模型进行预测
+        # Step 3: 使用 LSTM 模型進行預測
         model_start_time = time.time()
-        probabilities = predict_category(input_title, best_match["tokenized_title"])
+        probabilities = predict_category(input_title, best_match["tokenized_title"])  # 使用分詞後的標題
         model_end_time = time.time()
-        logging.info(f"LSTM 模型预测耗时: {model_end_time - model_start_time:.4f} 秒")
+        logging.info(f"LSTM 模型預測耗時: {model_end_time - model_start_time:.4f} 秒")
 
-        # Step 4: 准备响应数据
+        # Step 4: 準備響應數據
         category_index = np.argmax(probabilities)
-        categories = ["無關", "同意", "不同意"]  # 中文分类
+        categories = ["無關", "同意", "不同意"]  # 中文分類
         category = categories[category_index]
 
         response = {
@@ -148,13 +161,13 @@ def predict():
             'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
         }
 
-        # 总耗时记录
+        # 總耗時記錄
         total_time = time.time() - start_time
-        logging.info(f"API 处理总时间: {total_time:.4f} 秒")
+        logging.info(f"API 處理總時間: {total_time:.4f} 秒")
         return jsonify(response)
 
     except Exception as e:
-        logging.error(f"发生错误: {e}")
+        logging.error(f"發生錯誤: {e}")
         return jsonify({'error': str(e)}), 500
 
 
