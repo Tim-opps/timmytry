@@ -190,3 +190,21 @@ def get_history():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
+@app.route('/get-random-news', methods=['GET'])
+def get_random_news():
+    try:
+        connection = get_database_connection()
+        if connection:
+            cursor = connection.cursor(dictionary=True)
+            query = "SELECT title, content FROM cleaned_file ORDER BY RAND() LIMIT 4"
+            cursor.execute(query)
+            news_data = cursor.fetchall()
+            cursor.close()
+            connection.close()
+            return jsonify({'news': news_data})
+        else:
+            return jsonify({'error': 'Failed to connect to database'}), 500
+    except Exception as e:
+        logging.error(f"Error fetching random news: {e}")
+        return jsonify({'error': str(e)}), 500
