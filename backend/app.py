@@ -217,7 +217,7 @@ def random_page():
     sampled_data = data.sample(n=4).to_dict(orient='records')
 
     # 渲染 random.html，並將數據傳遞給模板
-    return render_template('random.html', data=sampled_data)
+    return render_template('trend.html', data=sampled_data)
 
 if __name__ == '__main__':
     app.run(debug=True)
