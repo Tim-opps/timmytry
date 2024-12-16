@@ -14,7 +14,7 @@ document.getElementById('submit-btn').addEventListener('click', async function (
 
     try {
         // 向後端發送請求
-        const response = await fetch('/predict', {
+        const response = await fetch('https://timmytry.onrender.com/predict', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
