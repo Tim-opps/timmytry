@@ -1,39 +1,38 @@
 document.addEventListener("DOMContentLoaded", function () {
     const trendContainer = document.querySelector(".trend-fakenews");
-    const refreshButton = document.createElement("button");
-    refreshButton.textContent = "重新加載新聞";
-    refreshButton.style.margin = "20px auto";
-    refreshButton.style.display = "block";
-    document.body.appendChild(refreshButton); // 動態添加按鈕
 
+    // 加載動畫
     const loadingIndicator = document.createElement("div");
     loadingIndicator.textContent = "數據加載中...";
     loadingIndicator.style.display = "none";
     loadingIndicator.style.textAlign = "center";
     loadingIndicator.style.fontSize = "1.2em";
-    document.body.insertBefore(loadingIndicator, trendContainer);
 
-    // 讀取和渲染假新聞的函數
+    // 插入加載動畫到 .trend 容器中
+    const trendSection = document.querySelector(".trend");
+    if (trendSection) {
+        trendSection.insertBefore(loadingIndicator, trendContainer);
+    } else {
+        console.error("找不到 .trend 容器");
+    }
+
+    // 渲染新聞的函數
     function loadFakeNews() {
-        loadingIndicator.style.display = "block"; // 顯示加載動畫
-        trendContainer.innerHTML = ""; // 清空之前的內容
+        loadingIndicator.style.display = "block";
+        trendContainer.innerHTML = ""; // 清空內容
 
-        fetch("datacombined_1_processed.csv") // CSV 文件位置
+        fetch("datacombined_1_processed.csv")
             .then(response => response.text())
             .then(data => {
                 const parsedData = Papa.parse(data, { header: true }).data;
-
-                // 篩選 classification = 1 的新聞
                 const filteredNews = parsedData.filter(news => news.classification === "1");
 
-                // 隨機選取 4 條新聞
                 const randomNews = [];
                 while (randomNews.length < 4 && filteredNews.length > 0) {
                     const index = Math.floor(Math.random() * filteredNews.length);
                     randomNews.push(filteredNews.splice(index, 1)[0]);
                 }
 
-                // 渲染新聞到頁面
                 if (randomNews.length === 0) {
                     trendContainer.innerHTML = "<p>沒有符合的假新聞。</p>";
                     return;
@@ -45,7 +44,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
                     const title = document.createElement("h4");
                     title.textContent = news.tokenized_title || "無標題";
-                    title.style.cursor = "pointer"; // 鼠標懸停效果
+                    title.style.cursor = "pointer";
                     title.style.color = "#fbaf59";
 
                     const summary = document.createElement("p");
@@ -56,7 +55,6 @@ document.addEventListener("DOMContentLoaded", function () {
                     const classification = document.createElement("p");
                     classification.innerHTML = `<strong>分類:</strong> 假新聞`;
 
-                    // 點擊標題顯示完整內容
                     title.addEventListener("click", function () {
                         alert(`完整內容：\n${news.tokenized_content || "無內容"}`);
                     });
@@ -76,9 +74,15 @@ document.addEventListener("DOMContentLoaded", function () {
             });
     }
 
-    // 首次加載新聞
+    // 初次加載新聞
     loadFakeNews();
 
-    // 重新加載新聞
+    // 重新加載新聞按鈕
+    const refreshButton = document.createElement("button");
+    refreshButton.textContent = "重新加載新聞";
+    refreshButton.style.margin = "20px auto";
+    refreshButton.style.display = "block";
+    document.body.appendChild(refreshButton);
+
     refreshButton.addEventListener("click", loadFakeNews);
 });
