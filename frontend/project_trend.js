@@ -8,19 +8,38 @@ document.addEventListener("DOMContentLoaded", function () {
     loadingIndicator.style.fontSize = "1.2em";
     trendContainer.appendChild(loadingIndicator);
 
+    // 錯誤提示函數
+    function displayError(message) {
+        trendContainer.innerHTML = `<p style="color: red; text-align: center;">錯誤: ${message}</p>`;
+    }
+
     // 讀取並顯示新聞的函數
     function loadFakeNews() {
         loadingIndicator.style.display = "block";
         trendContainer.innerHTML = ""; // 清空內容
 
         fetch("datacombined_1_processed.csv")
-            .then(response => response.text())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`無法加載新聞文件，HTTP 狀態碼: ${response.status}`);
+                }
+                return response.text();
+            })
             .then(data => {
                 // 使用 PapaParse 解析 CSV
-                const parsedData = Papa.parse(data, { header: true }).data;
+                const parsedData = Papa.parse(data, { header: true, skipEmptyLines: true }).data;
+
+                // 檢查 CSV 是否包含必要欄位
+                if (!parsedData || !parsedData.length) {
+                    throw new Error("新聞數據為空或格式不正確。");
+                }
 
                 // 過濾數據，避免空值
                 const validNews = parsedData.filter(news => news.title && news.content);
+
+                if (validNews.length === 0) {
+                    throw new Error("新聞數據中沒有可顯示的內容。");
+                }
 
                 // 隨機選取 4 條新聞
                 const randomNews = [];
@@ -30,11 +49,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
 
                 // 渲染新聞到頁面
-                if (randomNews.length === 0) {
-                    trendContainer.innerHTML = "<p>沒有可顯示的新聞。</p>";
-                    return;
-                }
-
+                trendContainer.innerHTML = ""; // 清空內容
                 randomNews.forEach(news => {
                     const newsItem = document.createElement("div");
                     newsItem.classList.add("news");
@@ -50,7 +65,6 @@ document.addEventListener("DOMContentLoaded", function () {
                         ? news.content.substring(0, 100) + "..." // 取前 100 個字作為摘要
                         : "無內容摘要";
 
-                    // 添加到新聞項目中
                     newsItem.appendChild(title);
                     newsItem.appendChild(summary);
                     trendContainer.appendChild(newsItem);
@@ -58,7 +72,7 @@ document.addEventListener("DOMContentLoaded", function () {
             })
             .catch(error => {
                 console.error("加載新聞失敗:", error);
-                trendContainer.innerHTML = "<p>加載新聞時發生錯誤，請稍後再試。</p>";
+                displayError(error.message || "加載新聞時發生未知錯誤，請稍後重試。");
             })
             .finally(() => {
                 loadingIndicator.style.display = "none"; // 隱藏加載動畫
@@ -67,7 +81,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // 初次加載新聞
     loadFakeNews();
-});
 
     // 重新加載新聞按鈕
     const refreshButton = document.createElement("button");
