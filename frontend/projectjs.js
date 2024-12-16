@@ -23,12 +23,20 @@ document.getElementById('submit-btn').addEventListener('click', async function (
         });
 
         // 檢查請求是否成功
+        const text = await response.text(); // 獲取原始響應
+        let data;
+
         if (!response.ok) {
             throw new Error(`伺服器返回錯誤: ${response.status} ${response.statusText}`);
         }
 
-        // 解析後端返回的 JSON 資料
-        const data = await response.json();
+        // 解析 JSON 資料
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            console.error('解析 JSON 失敗，響應內容:', text);
+            throw new Error('後端返回數據格式無效，無法解析成 JSON。');
+        }
 
         // 隱藏加載動畫
         loadingIndicator.style.display = 'none';
@@ -37,7 +45,7 @@ document.getElementById('submit-btn').addEventListener('click', async function (
         if (data.error) {
             updateResultError(data.error);
         } else {
-            updateResult(data);
+            updateResult(data, inputText);
         }
     } catch (error) {
         // 隱藏加載動畫
@@ -48,41 +56,7 @@ document.getElementById('submit-btn').addEventListener('click', async function (
 });
 
 // 更新分析結果到頁面
-function updateResult(data) {
-    const resultSection = document.getElementById('result');
-    const resultText = document.getElementById('result-text');
-    const resultTimestamp = document.getElementById('result-timestamp');
-
-    // 準備資料
-    const fakeProbability = data.probabilities && data.probabilities["不同意"] !== undefined 
-        ? (data.probabilities["不同意"] * 100).toFixed(2) : '0.00';
-    const realProbability = data.probabilities && data.probabilities["同意"] !== undefined 
-        ? (data.probabilities["同意"] * 100).toFixed(2) : '0.00';
-    const matchScore = data.match_score ? (data.match_score * 100).toFixed(2) : '0.00';
-
-    // 更新結果內容
-    resultText.innerHTML = `
-        <strong>分析結果：</strong> ${data.category || '未知'}<br>
-        <strong>假消息機率：</strong> ${fakeProbability}%<br>
-        <strong>真消息機率：</strong> ${realProbability}%<br>
-        <strong>相關標題：</strong> ${data.matched_title || '無匹配標題'}<br>
-        <strong>內容摘要：</strong> ${data.matched_content || '無匹配內容'}<br>
-        <strong>匹配分數：</strong> ${matchScore}%<br>
-    `;
-
-    // 顯示查詢時間戳
-    const currentTime = new Date().toLocaleString();
-    resultTimestamp.textContent = `查詢時間：${currentTime}`;
-
-    // 顯示結果區域
-    resultSection.style.display = 'block';
-
-    // 平滑滾動到結果部分
-    smoothScroll('#result');
-}
-
-// 更新分析結果到頁面
-function updateResult(data) {
+function updateResult(data, inputText) {
     const resultSection = document.getElementById('result');
     const resultText = document.getElementById('result-text');
     const resultTimestamp = document.getElementById('result-timestamp');
@@ -91,12 +65,12 @@ function updateResult(data) {
     const fakeProbability = data.probabilities && data.probabilities["不同意"] !== undefined 
         ? (data.probabilities["不同意"] * 100).toFixed(2) : '0.00';
 
-    // 更新結果內容：僅顯示指定內容
+    // 更新結果內容（只顯示真/假消息結果、輸入內容、匹配內容、假消息機率）
     resultText.innerHTML = `
+        <strong>您的輸入：</strong> ${inputText}<br>
         <strong>分析結果：</strong> ${data.classification || '未知'}<br>
-        <strong>用戶輸入：</strong> ${data.input_title || '未提供'}<br>
-        <strong>匹配內容：</strong> ${data.matched_title || '無匹配內容'}<br>
         <strong>假消息機率：</strong> ${fakeProbability}%<br>
+        <strong>匹配內容：</strong> ${data.matched_content || '無匹配內容'}<br>
     `;
 
     // 顯示查詢時間戳
@@ -110,6 +84,25 @@ function updateResult(data) {
     smoothScroll('#result');
 }
 
+// 更新錯誤訊息到頁面
+function updateResultError(errorMessage) {
+    const resultSection = document.getElementById('result');
+    const resultText = document.getElementById('result-text');
+    const resultTimestamp = document.getElementById('result-timestamp');
+
+    // 顯示錯誤訊息
+    resultText.innerHTML = `<strong>錯誤：</strong>${errorMessage}`;
+
+    // 顯示當前時間戳
+    const currentTime = new Date().toLocaleString();
+    resultTimestamp.textContent = `查詢時間：${currentTime}`;
+
+    // 顯示結果區域
+    resultSection.style.display = 'block';
+
+    // 平滑滾動到結果部分
+    smoothScroll('#result');
+}
 
 // 平滑滾動功能
 function smoothScroll(target) {
