@@ -3,72 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>shout-justice-Homepage</title>
+    <title>Trending Fake News</title>
     <link rel="stylesheet" href="project.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@100..900&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
-
 </head>
 <body>
 
-    <input type="checkbox" id="menu-control">
-    <header>
-        <h1><a href="">消假思聽</a></h1>
-        <label for="menu-control" class="menu-btn">&#9776;</label>
-        <ul>
-            <li><a href="index.html">辨識假消息</a></li>
-            <li class="active"><a href="trend.html">趨勢</a></li>
-            <li><a href="dataanal.html">資料統計</a></li>
-            <li><a href="aboutus.html">關於我們</a></li>
-        </ul>
-    </header>
+<header>
+    <h1><a href="index.html">消假思聽</a></h1>
+    <ul>
+        <li><a href="index.html">辨識假消息</a></li>
+        <li class="active"><a href="trend.html">趨勢</a></li>
+        <li><a href="dataanal.html">資料統計</a></li>
+        <li><a href="aboutus.html">關於我們</a></li>
+    </ul>
+</header>
 
-    <main>
-        <div class="trend">
-            <div class="trend-intro">
-                <h3>News and Updates</h3>
-                <h2>看看大家都在查詢的假新聞</h2>
-            </div>
-            <div class="trend-fakenews">
-                <!-- 動態渲染每條假新聞 -->
-                {% for news in data %}
-                <div class="news">
-                    <h4>{{ news.title }}</h4>
-                    <p>{{ news.content[:100] }}...</p>
-                    <p><strong>分類:</strong> {{ news.classification }}</p>
-                </div>
-                {% endfor %}
-            </div>
+<main>
+    <div class="trend">
+        <div class="trend-intro">
+            <h3>News and Updates</h3>
+            <h2>看看大家都在查詢的假新聞</h2>
         </div>
-
-    </main>
-
-    <footer>
-        <ul>
-            <li><a href="index.html">辨識假消息</a></li>
-            <li><a href="trend.html">趨勢</a></li>
-            <li><a href="dataanal.html">資料統計</a></li>
-            <li><a href="aboutus.html">關於我們</a></li>
-        </ul>
-        <div class="ftcon">
-            <div class="ft-info">
-                <img src="image/logo_工作區域 1.png" width="150px" height="60px" alt="">
-                <a href=""><img src="image/youtube.png" alt="" width="30px"></a>
-            </div>
-            <hr>
-            <form action="">
-                <p>歡迎訂閱消假思聽電子報，可收到更多關於我們的資訊喔！</p>
-                <div class="email">
-                    <input type="email" placeholder="請輸入您的Email" required>
-                    <button type="email-submit">提交</button>
-                </div>
-            </form>
-            <p>Copyright © 消假思聽 2024 All Rights Reserved.</p>
+        <div class="trend-fakenews">
+            <!-- 內容將由 JavaScript 動態渲染 -->
         </div>
-    </footer>
+    </div>
+</main>
 
-    <script src="projectjs.js"></script>
+<footer>
+    <p>Copyright © 消假思聽 2024 All Rights Reserved.</p>
+</footer>
+
+<script src="projectjs.js"></script>
 </body>
 </html>
