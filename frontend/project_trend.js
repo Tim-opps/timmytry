@@ -43,20 +43,20 @@ document.addEventListener("DOMContentLoaded", function () {
                     newsItem.classList.add("news");
 
                     const title = document.createElement("h4");
-                    title.textContent = news.tokenized_title || "無標題";
+                    title.textContent = news.title || "無標題";
                     title.style.cursor = "pointer";
                     title.style.color = "#fbaf59";
 
                     const summary = document.createElement("p");
-                    summary.textContent = news.tokenized_content
-                        ? news.tokenized_content.substring(0, 50) + "..."
+                    summary.textContent = news.content
+                        ? news.content.substring(0, 50) + "..."
                         : "無內容摘要";
 
                     const classification = document.createElement("p");
                     classification.innerHTML = `<strong>分類:</strong> 假新聞`;
 
                     title.addEventListener("click", function () {
-                        alert(`完整內容：\n${news.tokenized_content || "無內容"}`);
+                        alert(`完整內容：\n${news.content || "無內容"}`);
                     });
 
                     newsItem.appendChild(title);
