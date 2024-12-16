@@ -109,32 +109,46 @@ def predict():
         start_time = time.time()
         logging.info("开始处理 /predict 请求")
 
-        # 解析请求数据
+        # 1. 解析请求数据
         data_request = request.json
         input_title = data_request.get('title', '').strip()
 
         if not input_title or len(input_title) < 3:
+            logging.warning("无效输入标题")
             return jsonify({'error': '请提供有效的标题'}), 400
 
-        # 匹配 CSV 数据
+        logging.info(f"接收到的输入标题: {input_title}")
+
+        # 2. 匹配 CSV 数据
         best_match, best_score = find_best_match(input_title)
         if best_match is None:
+            logging.info("未找到匹配数据")
             return jsonify({'error': '未找到匹配数据'}), 404
 
-        # 模型预测
-        probabilities = predict_category(input_title, best_match["tokenized_title"])
+        # 3. 确保 tokenized_title 和 classification 存在
+        tokenized_title = best_match.get("tokenized_title", "")
+        tokenized_content = best_match.get("tokenized_content", "")
+        classification = best_match.get("classification", "")
+
+        if not tokenized_title or not classification:
+            logging.warning("CSV 数据缺少必要字段")
+            return jsonify({'error': '数据格式错误，缺少必要字段'}), 500
+
+        # 4. 模型预测
+        logging.info("开始进行模型预测")
+        probabilities = predict_category(input_title, tokenized_title)
         category_index = np.argmax(probabilities)
         categories = ["无关", "同意", "不同意"]
         category = categories[category_index]
 
-        # 构建响应
+        # 5. 构建响应数据
         response = {
             'input_title': input_title,
-            'matched_title': best_match["tokenized_title"],
-            'matched_content': best_match["tokenized_content"],
+            'matched_title': tokenized_title,
+            'matched_content': tokenized_content,
             'match_score': round(best_score, 4),
             'category': category,
-            'classification': "假消息" if int(best_match["classification"]) == 1 else "真消息",
+            'classification': "假消息" if int(classification) == 1 else "真消息",
             'probabilities': {cat: round(float(probabilities[0][i]), 4) for i, cat in enumerate(categories)}
         }
 
@@ -143,7 +157,8 @@ def predict():
 
     except Exception as e:
         logging.error(f"发生错误: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': '服务器内部错误', 'message': str(e)}), 500
+
 
 # 随机抽取页面路由
 @app.route('/random')
