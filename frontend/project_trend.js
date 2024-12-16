@@ -25,7 +25,7 @@ document.addEventListener("DOMContentLoaded", function () {
             .then(response => response.text())
             .then(data => {
                 const parsedData = Papa.parse(data, { header: true }).data;
-                const filteredNews = parsedData.filter(news => news.classification === "1");
+                const filteredNews = parsedData.filter(news => news.classification === 1);
 
                 const randomNews = [];
                 while (randomNews.length < 4 && filteredNews.length > 0) {
