@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 
 # 初始化 Flask 应用
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # 全局参数
 MAX_SEQUENCE_LENGTH = 20    # 模型输入的最大序列长度
@@ -160,15 +160,6 @@ def predict():
         return jsonify({'error': '服务器内部错误', 'message': str(e)}), 500
 
 
-# 随机抽取页面路由
-@app.route('/random')
-def random_page():
-    try:
-        sampled_data = data.sample(n=4).to_dict(orient='records')
-        return render_template('trend.html', data=sampled_data)
-    except Exception as e:
-        logging.error(f"随机抽取页面失败: {e}")
-        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
