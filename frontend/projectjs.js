@@ -70,7 +70,7 @@ function updateResult(data, inputText) {
         <strong>您的輸入：</strong> ${inputText}<br>
         <strong>分析結果：</strong> ${data.classification || '未知'}<br>
         <strong>假消息機率：</strong> ${fakeProbability}%<br>
-        <strong>匹配內容：</strong> ${data.matched_content || '無匹配內容'}<br>
+        <strong>匹配標題：</strong> ${data.matched_title || '無匹配內容'}<br>
     `;
 
     // 顯示查詢時間戳
