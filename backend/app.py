@@ -9,7 +9,7 @@ import logging
 import time
 import keras as kr
 import tensorflow as tf
-from flask import send_from_directory，render_template
+from flask import send_from_directory,render_template
 
 # 初始化日志记录
 logging.basicConfig(level=logging.INFO)
