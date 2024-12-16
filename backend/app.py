@@ -9,6 +9,7 @@ import logging
 import time
 import keras as kr
 import tensorflow as tf
+from flask import send_from_directory
 
 # 初始化日志记录
 logging.basicConfig(level=logging.INFO)
@@ -152,6 +153,17 @@ def predict():
         logging.error(f"\u53d1\u751f\u9519\u8bef: {e}")
         return jsonify({'error': '服务器内部错误', 'message': str(e)}), 500
 
+
+@app.route('/frontend/<path:datacombined_1_processed.csv>')
+def serve_static(filename):
+    return send_from_directory('frontend', datacombined_1_processed.csv)
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
+
+
+
+
+
