@@ -154,7 +154,7 @@ def predict():
         return jsonify({'error': '服务器内部错误', 'message': str(e)}), 500
 
 
-@app.route('/static/<path:path:filename>')
+@app.route('/static/<path:filename>')
 def serve_static(filename):
     return send_from_directory('frontend', datacombined_1_processed.csv)
 
