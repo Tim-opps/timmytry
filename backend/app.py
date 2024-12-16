@@ -8,9 +8,6 @@ import logging
 import time
 import keras as kr
 import tensorflow as tf
-import jieba
-import jieba.posseg as pseg  # 確保這裡導入正確
-
 
 # 初始化日志记录
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +18,7 @@ CORS(app)
 
 # 全局参数
 MAX_SEQUENCE_LENGTH = 20    # 模型输入的最大序列长度
-SIMILARITY_THRESHOLD = 0.2  # 数据库匹配的最低分数
+SIMILARITY_THRESHOLD = 0.5  # 数据匹配的最低分数
 CSV_FILE = "datacombined_1_tokenized.csv"  # 分词后的 CSV 文件路径
 
 # 全局变量
@@ -47,9 +44,9 @@ def load_model_and_tokenizer():
         tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=10000)
         tokenizer.word_index = word_index
         tokenizer.index_word = {index: word for word, index in word_index.items()}
-        logging.info("分词器加载成功。")
+        logging.info("\u5206\u8bcd\u5668\u52a0\u8f7d\u6210\u529f。")
     except Exception as e:
-        logging.error(f"加载 LSTM 模型或分词器失败: {e}")
+        logging.error(f"\u52a0\u8f7d LSTM \u6a21\u578b\u6216\u5206\u8bcd\u5668\u5931\u8d25: {e}")
 
 load_model_and_tokenizer()
 
@@ -58,30 +55,26 @@ def load_csv_data():
     global data
     try:
         data = pd.read_csv(CSV_FILE, dtype={"tokenized_title": "string", "tokenized_content": "string"})
-        logging.info(f"分词后的 CSV 文件已加载，共 {len(data)} 条记录。")
+        logging.info(f"\u5206\u8bcd\u540e\u7684 CSV \u6587\u4ef6\u5df2\u52a0\u8f7d\uff0c\u5171 {len(data)} \u6761\u8bb0\u5f55。")
     except Exception as e:
-        logging.error(f"加载 CSV 文件失败: {e}")
+        logging.error(f"\u52a0\u8f7d CSV \u6587\u4ef6\u5931\u8d25: {e}")
 
 load_csv_data()
 
-# 分詞函數
-def jieba_tokenizer(text):
-    words = pseg.cut(text)
-    return [word for word, flag in words if flag != 'x']  # 返回分詞後的列表
-
-# CSV 匹配函數（更新：對輸入文本進行分詞）
+# CSV 匹配函数
 def find_best_match(input_text):
     best_match = None
     best_score = 0
+
+    input_tokens = input_text.split()  # 分词后的输入
 
     for _, row in data.iterrows():
         title_tokens = row['tokenized_title'].split()
         content_tokens = row['tokenized_content'].split()
         combined_text = set(title_tokens + content_tokens)
-        input_tokens = set(jieba_tokenizer(input_text))
 
-        # 計算匹配分數
-        common_tokens = input_tokens & combined_text
+        # 匹配分数计算
+        common_tokens = set(input_tokens) & combined_text
         score = len(common_tokens) / len(input_tokens)
 
         if score > best_score and score >= SIMILARITY_THRESHOLD:
@@ -91,70 +84,64 @@ def find_best_match(input_text):
     return best_match, best_score
 
 # 文本预处理
-def preprocess_texts(title):
+def preprocess_texts(text):
     if tokenizer is None:
-        raise ValueError("分词器尚未加载。")
-    # 假设输入已经分词好，直接用空格分割
-    x_test = tokenizer.texts_to_sequences([title])
+        raise ValueError("\u5206\u8bcd\u5668\u672a\u52a0\u8f7d。")
+    x_test = tokenizer.texts_to_sequences([text])
     x_test = kr.preprocessing.sequence.pad_sequences(x_test, maxlen=MAX_SEQUENCE_LENGTH)
     return x_test
 
 # 模型预测
 def predict_category(input_title, database_title):
     if model is None:
-        raise ValueError("LSTM 模型尚未加载。")
+        raise ValueError("LSTM \u6a21\u578b\u672a\u52a0\u8f7d。")
     input_processed = preprocess_texts(input_title)
     db_processed = preprocess_texts(database_title)
     predictions = model.predict([input_processed, db_processed])
     return predictions
 
 # API 路由：预测
-# API 路由：預測
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
         start_time = time.time()
-        logging.info("開始處理 /predict 請求")
+        logging.info("\u5f00\u59cb\u5904\u7406 /predict \u8bf7\u6c42")
 
-        # 解析請求數據
+        # 解析请求数据
         data_request = request.json
         input_title = data_request.get('title', '').strip()
 
         if not input_title or len(input_title) < 3:
-            return jsonify({'error': '請提供有效的標題'}), 400
+            return jsonify({'error': '\u8bf7\u63d0\u4f9b\u6709\u6548\u7684\u6807\u9898'}), 400
 
-        # 匹配 CSV 數據
+        # 匹配 CSV 数据
         best_match, best_score = find_best_match(input_title)
         if best_match is None:
-            return jsonify({'error': '未找到匹配數據'}), 404
+            return jsonify({'error': '\u672a\u627e\u5230\u5339\u914d\u6570\u636e'}), 404
 
-        # 獲取匹配結果的 classification
-        classification = int(best_match["classification"])
-
-        # 使用 LSTM 模型進行預測
+        # 模型预测
         probabilities = predict_category(input_title, best_match["tokenized_title"])
         category_index = np.argmax(probabilities)
-        categories = ["無關", "同意", "不同意"]
+        categories = ["\u65e0\u5173", "\u540c\u610f", "\u4e0d\u540c\u610f"]
         category = categories[category_index]
 
-        # 構建響應
+        # 构建响应
         response = {
             'input_title': input_title,
             'matched_title': best_match["tokenized_title"],
             'matched_content': best_match["tokenized_content"],
-            'match_score': best_score,
+            'match_score': round(best_score, 4),
             'category': category,
-            'classification': "假消息" if classification == 1 else "真消息",
-            'probabilities': {cat: float(probabilities[0][i]) for i, cat in enumerate(categories)}
+            'classification': "\u5047\u6d88\u606f" if best_match["classification"] == 1 else "\u771f\u6d88\u606f",
+            'probabilities': {cat: round(float(probabilities[0][i]), 4) for i, cat in enumerate(categories)}
         }
 
-        logging.info(f"API 處理總時間: {time.time() - start_time:.4f} 秒")
+        logging.info(f"API \u5904\u7406\u603b\u65f6\u95f4: {time.time() - start_time:.4f} \u79d2")
         return jsonify(response)
 
     except Exception as e:
-        logging.error(f"發生錯誤: {e}")
+        logging.error(f"\u53d1\u751f\u9519\u8bef: {e}")
         return jsonify({'error': str(e)}), 500
-
 
 # 随机抽取页面路由
 @app.route('/random')
