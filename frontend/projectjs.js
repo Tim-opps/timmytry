@@ -160,15 +160,15 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 // 標題
                 const title = document.createElement("h4");
-                title.textContent = news.tokenized_title || "無標題";
+                title.textContent = news.title || "無標題";
 
                 // 摘要內容
                 const content = document.createElement("p");
-                content.textContent = news.tokenized_content ? `${news.tokenized_content.substring(0, 100)}...` : "無內容摘要";
+                content.textContent = news.content ? `${news.content.substring(0, 100)}...` : "無內容摘要";
 
                 // 假消息分類
                 const classification = document.createElement("p");
-                classification.innerHTML = `<strong>分類:</strong> ${news.classification === "1" ? "假消息" : "真消息"}`;
+                classification.innerHTML = `<strong>分類:</strong> 假消息`;
 
                 newsItem.appendChild(title);
                 newsItem.appendChild(content);
@@ -181,3 +181,4 @@ document.addEventListener("DOMContentLoaded", function () {
             trendContainer.innerHTML = "<p>載入資料時發生錯誤，請稍後再試。</p>";
         });
 });
+
