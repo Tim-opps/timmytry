@@ -132,9 +132,9 @@ document.addEventListener("DOMContentLoaded", function () {
     const trendContainer = document.querySelector(".trend-fakenews");
 
     // 使用 PapaParse 讀取並解析 CSV 文件
-    fetch("datacombined_1_processed.csv")
-        .then(response => response.text())
-        .then(data => {
+    fetch("https://raw.githubusercontent.com/Tim-opps/timmytry/refs/heads/main/frontend/datacombined_1_processed.csv")
+    .then(response => response.text())
+    .then(data => {
             // 使用 PapaParse 解析 CSV
             const parsedData = Papa.parse(data, { header: true }).data;
 
