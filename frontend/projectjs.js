@@ -135,6 +135,7 @@ document.addEventListener("DOMContentLoaded", function () {
     fetch("datacombined_1_processed.csv")
         .then(response => response.text())
         .then(data => {
+            // 使用 PapaParse 解析 CSV
             const parsedData = Papa.parse(data, { header: true }).data;
 
             // 篩選 classification = 1 的資料
@@ -147,7 +148,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 randomNews.push(filteredNews.splice(index, 1)[0]);
             }
 
-            // 將資料顯示在頁面上
+            // 渲染資料到頁面
             if (randomNews.length === 0) {
                 trendContainer.innerHTML = "<p>沒有符合的假消息資料。</p>";
                 return;
@@ -155,16 +156,23 @@ document.addEventListener("DOMContentLoaded", function () {
 
             randomNews.forEach(news => {
                 const newsItem = document.createElement("div");
-                newsItem.classList.add("news-item");
+                newsItem.classList.add("news");
 
-                const title = document.createElement("h6");
-                title.textContent = news.tokenized_title;
+                // 標題
+                const title = document.createElement("h4");
+                title.textContent = news.tokenized_title || "無標題";
 
+                // 摘要內容
                 const content = document.createElement("p");
-                content.textContent = news.tokenized_content;
+                content.textContent = news.tokenized_content ? `${news.tokenized_content.substring(0, 100)}...` : "無內容摘要";
+
+                // 假消息分類
+                const classification = document.createElement("p");
+                classification.innerHTML = `<strong>分類:</strong> ${news.classification === "1" ? "假消息" : "真消息"}`;
 
                 newsItem.appendChild(title);
                 newsItem.appendChild(content);
+                newsItem.appendChild(classification);
                 trendContainer.appendChild(newsItem);
             });
         })
