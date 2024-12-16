@@ -81,16 +81,25 @@ function updateResult(data) {
     smoothScroll('#result');
 }
 
-// 更新錯誤訊息到頁面
-function updateResultError(errorMessage) {
+// 更新分析結果到頁面
+function updateResult(data) {
     const resultSection = document.getElementById('result');
     const resultText = document.getElementById('result-text');
     const resultTimestamp = document.getElementById('result-timestamp');
 
-    // 顯示錯誤訊息
-    resultText.innerHTML = `<strong>錯誤：</strong>${errorMessage}`;
+    // 準備資料
+    const fakeProbability = data.probabilities && data.probabilities["不同意"] !== undefined 
+        ? (data.probabilities["不同意"] * 100).toFixed(2) : '0.00';
 
-    // 顯示當前時間戳
+    // 更新結果內容：僅顯示指定內容
+    resultText.innerHTML = `
+        <strong>分析結果：</strong> ${data.classification || '未知'}<br>
+        <strong>用戶輸入：</strong> ${data.input_title || '未提供'}<br>
+        <strong>匹配內容：</strong> ${data.matched_title || '無匹配內容'}<br>
+        <strong>假消息機率：</strong> ${fakeProbability}%<br>
+    `;
+
+    // 顯示查詢時間戳
     const currentTime = new Date().toLocaleString();
     resultTimestamp.textContent = `查詢時間：${currentTime}`;
 
@@ -100,6 +109,7 @@ function updateResultError(errorMessage) {
     // 平滑滾動到結果部分
     smoothScroll('#result');
 }
+
 
 // 平滑滾動功能
 function smoothScroll(target) {
