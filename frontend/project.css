@@ -299,9 +299,10 @@ button:hover{
 
 
 .trend-intro{
-    height: 180px;
+    height: 160px;
     margin:auto;
     padding-top: 80px;
+    width:70vw;
     
     h3{
         font-size: 20pt;
@@ -319,6 +320,7 @@ button:hover{
 
 .trend-fakenews{
     display: flex;
+    justify-content: center
 }
 
 .trend-fakenews ul{
