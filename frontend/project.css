@@ -300,12 +300,14 @@ button:hover{
 
 .trend-intro{
     height: 180px;
+    margin:auto;
+    padding-top: 80px;
     
     h3{
         font-size: 20pt;
         font-weight: 800;
         color: #fbaf59;
-        margin_top:120px;
+        
     }
     h2{
         font-size: 25pt;
