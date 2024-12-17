@@ -615,6 +615,8 @@ footer hr{
     /* trend rwd start */
     .trend-intro{
         height: 80px;
+        margin:auto;
+        padding-top: 60px;
     }
 
     .trend .trend-intro h3{
