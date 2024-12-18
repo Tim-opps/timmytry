@@ -375,7 +375,7 @@ button:hover{
 }
 
 .trend-fakenews .news{
-    height: 200px;
+    height: 150px;
     width: 250px;
     background-color: #fff;
     padding: 20px 20px 15px 20px;
@@ -668,7 +668,7 @@ footer hr{
     .trend-intro{
         height: 80px;
         margin:auto;
-        padding-top: 60px;
+        padding-top: 80px;
     }
 
     .trend .trend-intro h3{
@@ -690,7 +690,7 @@ footer hr{
     .trend .news{
         width: 80%;
         margin: 20px 0 0 0;;
-        
+        height:120px;
     }
     .trend-fakenews .news:hover{
         bottom: 0;
