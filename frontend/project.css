@@ -642,7 +642,7 @@ footer hr{
     /* detect rwd end */
     /*result rwd start*/
 .result{
-            height: 300px;
+            height: 180px;
             width: 80vw;
         }
     .result h3{
