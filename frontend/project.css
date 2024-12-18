@@ -394,6 +394,22 @@ button:hover{
 
 
 /* trend end */
+/* result start */
+.result{
+    width:65vw;
+    border:1px solid rgba(251, 175, 89, 0.9);
+    border-radius: 15px;
+}
+.result h3{
+    text-align:center;
+}
+
+.result strong{
+    color: #fbaf59;
+}
+
+
+/* result end */
 
 /* footer start */
 
