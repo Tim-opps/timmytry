@@ -413,6 +413,11 @@ button:hover{
     margin-bottom:5px;
 }
 
+.result #result-text{
+    
+    margin-top:15px;
+}
+
 
 /* result end */
 
