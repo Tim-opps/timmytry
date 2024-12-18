@@ -79,12 +79,5 @@ document.addEventListener("DOMContentLoaded", function () {
     // 初次加載新聞
     loadFakeNews();
 
-    // 重新加載新聞按鈕
-    const refreshButton = document.createElement("button");
-    refreshButton.textContent = "重新加載新聞";
-    refreshButton.style.margin = "20px auto";
-    refreshButton.style.display = "block";
-    document.body.appendChild(refreshButton);
-
-    refreshButton.addEventListener("click", loadFakeNews);
+   
 });
