@@ -415,8 +415,12 @@ button:hover{
 }
 
 .result #result-text{
-    
+    width:40vw;
     margin-top:15px;
+}
+.result #result-timestamp{
+    width:40vw;
+   
 }
 
 
