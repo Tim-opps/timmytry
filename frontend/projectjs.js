@@ -73,9 +73,12 @@ function updateResult(data, inputText) {
         <strong>匹配標題：</strong> ${data.matched_title || '無匹配內容'}<br>
     `;
 
+
+
+
     // 顯示查詢時間戳
     const currentTime = new Date().toLocaleString();
-    resultTimestamp.textContent = `查詢時間：${currentTime}`;
+    resultTimestamp.innerHTML = `<strong>查詢時間：</strong>${currentTime}`;
 
     // 顯示結果區域
     resultSection.style.display = 'block';
